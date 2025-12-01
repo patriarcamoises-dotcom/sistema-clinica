@@ -5,23 +5,55 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, time
 import os
 
-# --- 1. CONFIGURAÇÃO VISUAL & ESTILO DE IMPRESSÃO ---
+# --- 1. CONFIGURAÇÃO E CSS DE IMPRESSÃO AVANÇADO ---
 st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
 
 def estilo_impressao():
-    # ESSE CÓDIGO FAZ A MÁGICA DE ESCONDER O MENU NA HORA DE IMPRIMIR
     st.markdown("""
         <style>
         @media print {
-            /* Esconde o menu lateral, cabeçalho e botões ao imprimir */
-            [data-testid="stSidebar"] { display: none !important; }
-            [data-testid="stHeader"] { display: none !important; }
-            .stApp { margin-top: -80px; } /* Sobe a folha para o topo */
-            button { display: none !important; } /* Esconde botões de clique */
-            footer { display: none !important; }
+            /* 1. Ocultar interface geral do Streamlit */
+            [data-testid="stSidebar"], [data-testid="stHeader"], footer { 
+                display: none !important; 
+            }
             
-            /* Garante que o fundo fique branco e texto preto */
-            body { color: black; background-color: white; }
+            /* 2. Ocultar elementos de CONTROLE (Tabela e Seleção) */
+            [data-testid="stDataFrame"] { display: none !important; }
+            [data-testid="stSelectbox"] { display: none !important; }
+            [data-testid="stButton"] { display: none !important; }
+            .stAlert { display: none !important; } /* Esconde avisos azuis */
+            
+            /* 3. Ocultar o título da tela de seleção (h1, h2, h3 que estão soltos) */
+            .main .block-container > div > div > h1, 
+            .main .block-container > div > div > h2, 
+            .main .block-container > div > div > h3 {
+                display: none !important;
+            }
+
+            /* 4. FORÇAR A FICHA A APARECER */
+            /* A ficha está dentro de um container com borda. Vamos focar nele. */
+            [data-testid="stVerticalBlockBorderWrapper"] {
+                display: block !important;
+                border: 2px solid #000 !important; /* Borda preta firme */
+                margin: 0 !important;
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                z-index: 9999;
+                background-color: white;
+            }
+            
+            /* Re-exibir os títulos DENTRO da ficha */
+            [data-testid="stVerticalBlockBorderWrapper"] h1, 
+            [data-testid="stVerticalBlockBorderWrapper"] h2, 
+            [data-testid="stVerticalBlockBorderWrapper"] h3 {
+                display: block !important;
+            }
+
+            /* Ajustes de margem da página */
+            @page { margin: 1cm; size: auto; }
+            .stApp { background: white; }
             .block-container { padding: 0 !important; }
         }
         </style>
@@ -29,11 +61,10 @@ def estilo_impressao():
 
 estilo_impressao()
 
-# --- 2. CONEXÃO GOOGLE SHEETS ---
+# --- 2. CONEXÃO ---
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
-        # Tenta conexão Híbrida (PC ou Nuvem)
         if "gcp_service_account" in st.secrets:
             creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
         else:
@@ -56,7 +87,7 @@ def carregar_aba(planilha, nome_aba):
         return df
     except: return pd.DataFrame()
 
-# --- 3. LÓGICA AUXILIAR ---
+# --- 3. LÓGICA ---
 def verificar_conflito(df, dia, hora):
     if df.empty or 'Data' not in df.columns: return False
     dia_str = dia.strftime("%d/%m/%Y")
@@ -79,7 +110,7 @@ def processar_checkboxes(dicionario):
     itens = [k for k, v in dicionario.items() if v]
     return ", ".join(itens) if itens else "Nada"
 
-# --- 4. SISTEMA PRINCIPAL ---
+# --- 4. SISTEMA ---
 def main():
     with st.sidebar:
         if os.path.exists("logo.png"): st.image("logo.png", width=200)
@@ -93,12 +124,10 @@ def main():
             "🖨️ Central de Impressão",
             "💸 Registrar Despesa"
         ])
-        st.success("Sistema V6.3 - Pronta p/ Impressão")
+        st.success("Sistema V6.4 - Impressão Limpa")
 
     planilha = conectar_google_sheets()
-    if not planilha:
-        st.error("Erro de conexão. Verifique 'credentials.json'.")
-        return
+    if not planilha: return
 
     # === TELA 1: FINANCEIRO ===
     if menu == "📊 Painel Financeiro":
@@ -166,106 +195,74 @@ def main():
                 end = st.text_input("Endereço Completo")
                 tel = st.text_input("Telefone")
                 captacao = st.selectbox("Indicação/Origem", ["Instagram", "Facebook", "Indicação", "Outro"])
-
             with t2:
-                st.subheader("2. Anamnese Geral & Laser")
+                st.subheader("2. Anamnese")
                 colA, colB, colC = st.columns(3)
                 with colA:
                     st.markdown("**Clínico:**")
                     saude_check = {
                         "Alergia": st.checkbox("Alergias?"),
                         "Medicamentos": st.checkbox("Usa Medicamentos?"),
-                        "Trat_Medico": st.checkbox("Em tratamento médico?"),
-                        "Oncologico": st.checkbox("Antecedentes Oncológicos?"),
-                        "Cardiaco": st.checkbox("Alterações Cardíacas?"),
-                        "Marcapasso": st.checkbox("Usa Marcapasso?"),
-                        "Hepatite": st.checkbox("Teve Hepatite?"),
-                        "Renal": st.checkbox("Problema Renal?"),
-                        "Epilepsia": st.checkbox("Epilepsia/Convulsão?")
+                        "Trat_Medico": st.checkbox("Tratamento médico?"),
+                        "Oncologico": st.checkbox("Hist. Oncológicos?"),
+                        "Cardiaco": st.checkbox("Cardíaco/Marcapasso?"),
+                        "Hepatite": st.checkbox("Hepatite/Renal?"),
+                        "Epilepsia": st.checkbox("Epilepsia?")
                     }
                 with colB:
-                    st.markdown("**Pele & Circulação:**")
+                    st.markdown("**Pele:**")
                     pele_check = {
                         "Queloides": st.checkbox("Quelóides?"),
                         "Foliculite": st.checkbox("Foliculite?"),
                         "Manchas": st.checkbox("Manchas?"),
-                        "Psoriase": st.checkbox("Psoríase/Prob. Pele?"),
-                        "Varizes": st.checkbox("Vasos/Varizes?"),
-                        "Trombose": st.checkbox("Distúrbio Circulatório?"),
-                        "Cicatriza": st.checkbox("Má Cicatrização?")
+                        "Psoriase": st.checkbox("Psoríase?"),
+                        "Varizes": st.checkbox("Varizes/Trombose?")
                     }
                 with colC:
-                    st.markdown("**Laser & Hábitos:**")
+                    st.markdown("**Laser:**")
                     laser_check = {
-                        "Depilacao_Ant": st.checkbox("Já fez depilação antes?"),
-                        "Sol": st.checkbox("Exposição Solar Recente?"),
-                        "Bronzeamento": st.checkbox("Usa Bronzeador?"),
-                        "Acidos": st.checkbox("Usa Ácidos na pele?"),
-                        "Roacutan": st.checkbox("Usou Roacutan (6 meses)?")
+                        "Depilacao_Ant": st.checkbox("Já fez depilação?"),
+                        "Sol": st.checkbox("Sol Recente?"),
+                        "Acidos": st.checkbox("Usa Ácidos?"),
+                        "Roacutan": st.checkbox("Roacutan?")
                     }
-                st.markdown("**Saúde da Mulher:**")
-                cm1, cm2, cm3, cm4 = st.columns(4)
-                gestante = cm1.checkbox("Gestante?")
-                semanas = cm1.text_input("Semanas", "")
-                amamentando = cm2.checkbox("Amamentando?")
-                diu = cm3.checkbox("Usa DIU?")
-                hormonal = cm4.checkbox("Hormonal?")
+                st.markdown("**Mulher:**")
+                cm1, cm2, cm3 = st.columns(3)
+                gestante = cm1.checkbox("Gestante/Amamentando?")
+                diu = cm2.checkbox("Usa DIU?")
+                hormonal = cm3.checkbox("Hormonal?")
                 obs_saude = st.text_area("Observações")
-
             with t3:
-                st.subheader("3. Medidas & Hábitos")
+                st.subheader("3. Corporal")
                 ch1, ch2, ch3 = st.columns(3)
                 intestino = ch1.selectbox("Intestino", ["Regular", "Preso", "Irregular"])
-                sono = ch2.selectbox("Qualidade Sono", ["Boa", "Regular", "Ruim"])
-                agua = ch3.selectbox("Ingere Água?", ["Sim (+2L)", "Pouco", "Não"])
-                ativ = st.checkbox("Atividade Física?")
-                fumante = st.checkbox("Tabagismo?")
-                alcool = st.checkbox("Ingere Álcool?")
+                sono = ch2.selectbox("Sono", ["Boa", "Regular", "Ruim"])
+                agua = ch3.selectbox("Água", ["Sim (+2L)", "Pouco", "Não"])
+                ativ = st.checkbox("Ativ. Física / Fumante / Álcool?")
                 
                 m1, m2, m3 = st.columns(3)
                 with m1:
-                    peso = st.number_input("Peso (kg)", step=0.1)
+                    peso = st.number_input("Peso", step=0.1)
                     busto = st.number_input("Busto", step=0.5)
-                    braco_d = st.number_input("Braço Dir", step=0.5)
-                    braco_e = st.number_input("Braço Esq", step=0.5)
+                    braco = st.number_input("Braços", step=0.5)
                 with m2:
-                    altura = st.number_input("Altura (m)", step=0.01)
-                    abd_sup = st.number_input("Abdômen Sup", step=0.5)
-                    cintura = st.number_input("Cintura/Umbigo", step=0.5)
-                    abd_inf = st.number_input("Abdômen Inf", step=0.5)
+                    altura = st.number_input("Altura", step=0.01)
+                    abd = st.number_input("Abdômen (Sup/Inf)", step=0.5)
+                    cintura = st.number_input("Cintura", step=0.5)
                 with m3:
                     quadril = st.number_input("Quadril", step=0.5)
-                    coxa_d = st.number_input("Coxa Dir", step=0.5)
-                    coxa_e = st.number_input("Coxa Esq", step=0.5)
-                    culote = st.number_input("Culote", step=0.5)
-                biotipo = st.radio("Biotipo", ["Ginóide", "Andróide", "Normolíneo"], horizontal=True)
-                queixa_corp = st.text_area("Queixa Corporal")
-
+                    coxa = st.number_input("Coxas", step=0.5)
+                    culote = st.number_input("Culote/Panturrilha", step=0.5)
+                biotipo = st.text_input("Biotipo / Queixa")
             with t4:
                 st.subheader("4. Facial")
                 f1, f2 = st.columns(2)
-                lentes = f1.checkbox("Lentes de Contato?")
-                cremes = f2.checkbox("Usa Cremes?")
-                filtro = st.radio("Filtro Solar?", ["Sim", "Às vezes", "Não"], horizontal=True)
-                
-                col_pele1, col_pele2 = st.columns(2)
-                with col_pele1:
-                    fototipo = st.select_slider("Fototipo", options=["I", "II", "III", "IV", "V", "VI"])
-                    tipo_pele = st.selectbox("Pele", ["Eudérmica", "Alípica", "Lipídica", "Mista", "Seborréica"])
-                    hidratacao = st.selectbox("Hidratação", ["Hidratada", "Desidratada"])
-                with col_pele2:
-                    espessura = st.selectbox("Espessura", ["Fina", "Muito Fina", "Espessa"])
-                    ostios = st.selectbox("Óstios", ["Contraídos", "Dilatados"])
-                    acne_grau = st.selectbox("Acne", ["Não tem", "Grau I", "Grau II", "Grau III", "Grau IV"])
-
-                lesoes = st.multiselect("Lesões:", [
-                    "Comedões (Cravos)", "Millium", "Pápulas", "Pústulas", "Cistos", 
-                    "Manchas Hiper", "Manchas Hipo", "Melasma", "Efélides",
-                    "Rugas", "Flacidez", "Olheiras", "Cicatriz Acne", "Telangiectasias",
-                    "Nevos", "Verrugas", "Xantelasma", "Hirsutismo", "Queratose", "Vibices", "Ptose"
-                ])
+                lentes = f1.checkbox("Lentes/Cremes?")
+                filtro = f2.radio("Filtro Solar?", ["Sim", "Não"], horizontal=True)
+                fototipo = st.select_slider("Fototipo", options=["I", "II", "III", "IV", "V", "VI"])
+                pele = st.selectbox("Pele", ["Normal", "Seca", "Oleosa", "Mista", "Seborréica", "Acneica"])
+                lesoes = st.multiselect("Lesões:", ["Cravos", "Espinhas", "Manchas", "Melasma", "Rugas", "Flacidez", "Olheiras", "Cicatriz", "Vasinhos", "Verrugas"])
                 plano_facial = st.text_area("Plano Facial")
-
             with t5:
                 st.subheader("5. Fechamento")
                 co1, co2 = st.columns(2)
@@ -274,50 +271,45 @@ def main():
                 tratamento = st.text_area("Tratamento")
                 v1, v2 = st.columns(2)
                 valor = v1.number_input("Total (R$)", min_value=0.0)
-                pag = v2.selectbox("Pagamento", ["PIX", "Cartão Crédito", "Cartão Débito", "Dinheiro", "Parcelado"])
-
+                pag = v2.selectbox("Pagamento", ["PIX", "Cartão", "Dinheiro"])
+            
             if st.form_submit_button("💾 SALVAR"):
                 df_check = carregar_aba(planilha, "agendamentos")
-                if verificar_conflito(df_check, dia_orc, hora_orc): st.error("Horário Ocupado!")
-                elif not nome: st.warning("Preencha Nome!")
+                if verificar_conflito(df_check, dia_orc, hora_orc): st.error("Ocupado!")
+                elif not nome: st.warning("Nome!")
                 else:
-                    pessoais = f"Nasc:{nasc} | CPF:{cpf} | Prof:{prof} | End:{end} | Origem:{captacao}"
+                    pessoais = f"Nasc:{nasc} | CPF:{cpf} | Prof:{prof} | End:{end}"
                     saude_txt = processar_checkboxes({**saude_check, **pele_check, **laser_check})
-                    saude_txt += f" | Gest:{gestante}({semanas}), DIU:{diu}, Horm:{hormonal} | Obs:{obs_saude}"
-                    habitos_txt = f"Intest:{intestino}, Sono:{sono}, Água:{agua}, Ativ:{ativ}, Fum:{fumante}"
-                    medidas_txt = (f"Peso:{peso} Alt:{altura} Busto:{busto} Braços:{braco_d}/{braco_e} "
-                                   f"Cint:{cintura} Abd:{abd_sup}/{abd_inf} Quad:{quadril} Culote:{culote} "
-                                   f"Coxas:{coxa_d}/{coxa_e} | Bio:{biotipo} | Hábitos: {habitos_txt}")
-                    facial_txt = (f"Foto:{fototipo} Pele:{tipo_pele} Hidra:{hidratacao} Esp:{espessura} "
-                                  f"Acne:{acne_grau} Poros:{ostios} | Filtro:{filtro} Lentes:{lentes} | "
-                                  f"Lesões: {', '.join(lesoes)} | Plano: {plano_facial}")
+                    saude_txt += f" | Gest:{gestante}, DIU:{diu}, Horm:{hormonal} | Obs:{obs_saude}"
+                    medidas_txt = (f"Peso:{peso} Alt:{altura} Busto:{busto} Braços:{braco} Cint:{cintura} Abd:{abd} Quad:{quadril} Coxas:{coxa} Culote:{culote} | Hab:{intestino},{sono},{agua} | Ativ:{ativ}")
+                    facial_txt = (f"Foto:{fototipo} Pele:{pele} | Filtro:{filtro} Lentes:{lentes} | Lesões:{', '.join(lesoes)} | Plano:{plano_facial}")
                     orcamento_txt = f"Trat:{tratamento} | Pag:{pag} | Valor: R$ {valor}"
-
                     try:
                         planilha.worksheet("agendamentos").append_row([
                             dia_orc.strftime("%d/%m/%Y"), str(hora_orc), nome, tel,
                             pessoais, saude_txt, "Ver Geral", medidas_txt,
                             facial_txt, orcamento_txt, "Completo"
                         ])
-                        st.balloons()
                         st.success("Salvo!")
                     except Exception as e: st.error(f"Erro: {e}")
 
     # === TELA 4: IMPRESSÃO ===
     elif menu == "🖨️ Central de Impressão":
-        st.header("🖨️ Fichas para Imprimir")
+        st.markdown("### 🖨️ Seleção de Impressão") # Mudei para H3 para poder ocultar na impressão
         df = carregar_aba(planilha, "agendamentos")
         if not df.empty:
-            st.dataframe(df)
-            cli = st.selectbox("Selecione Cliente:", df['Nome_Cliente'].unique())
+            st.dataframe(df) # Isso vai sumir na impressão
+            cli = st.selectbox("Selecione o Cliente:", df['Nome_Cliente'].unique()) # Isso também
             if cli:
                 d = df[df['Nome_Cliente'] == cli].iloc[-1]
+                
+                # A FICHA QUE VAI IMPRIMIR
                 with st.container(border=True):
                     c_img, c_tit = st.columns([1, 4])
                     with c_img:
                         if os.path.exists("logo.png"): st.image("logo.png", width=100)
                     with c_tit:
-                        st.markdown("## FICHA DE AVALIAÇÃO ESTÉTICA")
+                        st.markdown("## FICHA DE AVALIAÇÃO ESTÉTICA") # H2 aparece
                     
                     st.markdown("---")
                     st.markdown(f"**Data:** {d.get('Data')} | **Cliente:** {d.get('Nome_Cliente')}")
@@ -335,7 +327,7 @@ def main():
                     st.markdown("### 💰 ORÇAMENTO")
                     st.markdown(f"**{d.get('Orcamento')}**")
                     st.markdown("\n\n______________________\nAssinatura")
-                st.info("Pressione Ctrl + P (O menu lateral irá sumir na impressão!)")
+                st.info("💡 Dica: Pressione **Ctrl + P**. A tabela e o menu acima irão desaparecer na folha!")
 
     # === TELA 5: DESPESAS ===
     elif menu == "💸 Registrar Despesa":
