@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 import os
 
 # --- 1. CONFIGURAÇÃO VISUAL & ESTILO DE IMPRESSÃO ---
-st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="💎")
+st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
 
 def estilo_impressao():
     # ESSE CÓDIGO FAZ A MÁGICA DE ESCONDER O MENU NA HORA DE IMPRIMIR
