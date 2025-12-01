@@ -5,61 +5,70 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, time
 import os
 
-# --- 1. CONFIGURAÇÃO E CSS DE IMPRESSÃO AVANÇADO ---
+# --- 1. CONFIGURAÇÃO VISUAL ---
 st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
 
-def estilo_impressao():
-    st.markdown("""
-        <style>
-        @media print {
-            /* 1. Ocultar interface geral do Streamlit */
-            [data-testid="stSidebar"], [data-testid="stHeader"], footer { 
-                display: none !important; 
-            }
-            
-            /* 2. Ocultar elementos de CONTROLE (Tabela e Seleção) */
-            [data-testid="stDataFrame"] { display: none !important; }
-            [data-testid="stSelectbox"] { display: none !important; }
-            [data-testid="stButton"] { display: none !important; }
-            .stAlert { display: none !important; } /* Esconde avisos azuis */
-            
-            /* 3. Ocultar o título da tela de seleção (h1, h2, h3 que estão soltos) */
-            .main .block-container > div > div > h1, 
-            .main .block-container > div > div > h2, 
-            .main .block-container > div > div > h3 {
-                display: none !important;
-            }
-
-            /* 4. FORÇAR A FICHA A APARECER */
-            /* A ficha está dentro de um container com borda. Vamos focar nele. */
-            [data-testid="stVerticalBlockBorderWrapper"] {
-                display: block !important;
-                border: 2px solid #000 !important; /* Borda preta firme */
-                margin: 0 !important;
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                z-index: 9999;
-                background-color: white;
-            }
-            
-            /* Re-exibir os títulos DENTRO da ficha */
-            [data-testid="stVerticalBlockBorderWrapper"] h1, 
-            [data-testid="stVerticalBlockBorderWrapper"] h2, 
-            [data-testid="stVerticalBlockBorderWrapper"] h3 {
-                display: block !important;
-            }
-
-            /* Ajustes de margem da página */
-            @page { margin: 1cm; size: auto; }
-            .stApp { background: white; }
-            .block-container { padding: 0 !important; }
+# CSS PARA IMPRESSÃO PROFISSIONAL (TIPO DOCUMENTO WORD)
+st.markdown("""
+    <style>
+    @media print {
+        /* Esconde tudo que não é o documento */
+        [data-testid="stSidebar"], [data-testid="stHeader"], footer, .no-print { display: none !important; }
+        
+        /* Configura a folha */
+        @page { margin: 1cm; size: A4; }
+        body { background-color: white; color: black; font-family: 'Times New Roman', serif; }
+        
+        /* Estilo da Ficha de Papel */
+        .ficha-papel {
+            border: 1px solid #000;
+            padding: 20px;
+            width: 100%;
+            max-width: 1000px;
+            margin: 0 auto;
         }
-        </style>
-    """, unsafe_allow_html=True)
-
-estilo_impressao()
+        .cabecalho {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .titulo-doc { font-size: 24px; font-weight: bold; text-transform: uppercase; }
+        .subtitulo { font-size: 14px; color: #333; margin-bottom: 5px; }
+        
+        .secao {
+            margin-bottom: 15px;
+            border: 1px solid #333;
+            padding: 10px;
+        }
+        .secao-titulo {
+            background-color: #eee;
+            font-weight: bold;
+            padding: 5px;
+            border-bottom: 1px solid #333;
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+        .conteudo {
+            padding: 10px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .assinaturas {
+            margin-top: 50px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .campo-ass {
+            border-top: 1px solid #000;
+            width: 40%;
+            text-align: center;
+            padding-top: 5px;
+            font-size: 12px;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- 2. CONEXÃO ---
 def conectar_google_sheets():
@@ -77,6 +86,7 @@ def carregar_aba(planilha, nome_aba):
     try:
         sheet = planilha.worksheet(nome_aba)
         df = pd.DataFrame(sheet.get_all_records())
+        # Vacinas
         if nome_aba == "agendamentos" and (df.empty or 'Data' not in df.columns):
             cols = ["Data", "Hora", "Nome_Cliente", "Contato", "Dados_Pessoais",
                     "Anamnese_Geral", "Saude_Mulher", "Medidas_Corporais", 
@@ -112,29 +122,27 @@ def processar_checkboxes(dicionario):
 
 # --- 4. SISTEMA ---
 def main():
+    # MENU LATERAL
     with st.sidebar:
         if os.path.exists("logo.png"): st.image("logo.png", width=200)
-        elif os.path.exists("logo.jpg"): st.image("logo.jpg", width=200)
-        
         st.title("Menu Clínica")
         menu = st.radio("Navegação:", [
             "📊 Painel Financeiro",
             "📅 Agendamento Rápido", 
             "📝 Ficha Completa (PDF Clone)", 
-            "🖨️ Central de Impressão",
+            "🖨️ Impressão Profissional",
             "💸 Registrar Despesa"
         ])
-        st.success("Sistema V6.4 - Impressão Limpa")
+        st.success("V6.5 - Doc Oficial")
 
     planilha = conectar_google_sheets()
     if not planilha: return
 
-    # === TELA 1: FINANCEIRO ===
+    # === FINANCEIRO ===
     if menu == "📊 Painel Financeiro":
         st.header("📊 Fluxo de Caixa")
         df_ag = carregar_aba(planilha, "agendamentos")
         df_dp = carregar_aba(planilha, "despesas")
-        
         c1, c2 = st.columns(2)
         mes = c1.selectbox("Mês", range(1,13), index=datetime.now().month-1)
         ano = c2.number_input("Ano", value=datetime.now().year)
@@ -144,19 +152,17 @@ def main():
             df_ag['Dt'] = pd.to_datetime(df_ag['Data'], dayfirst=True, errors='coerce')
             f = df_ag[(df_ag['Dt'].dt.month == mes) & (df_ag['Dt'].dt.year == ano)]
             for item in f['Orcamento']: rec += limpar_valor(item)
-            
         desp = 0.0
         if not df_dp.empty:
             df_dp['Dt'] = pd.to_datetime(df_dp['Data'], dayfirst=True, errors='coerce')
             f2 = df_dp[(df_dp['Dt'].dt.month == mes) & (df_dp['Dt'].dt.year == ano)]
             desp = f2['Valor'].apply(lambda x: limpar_valor(str(x))).sum()
-            
         k1, k2, k3 = st.columns(3)
         k1.metric("Entradas", f"R$ {rec:,.2f}")
         k2.metric("Saídas", f"R$ {desp:,.2f}")
         k3.metric("Lucro", f"R$ {rec-desp:,.2f}")
 
-    # === TELA 2: AGENDAMENTO ===
+    # === AGENDAMENTO ===
     elif menu == "📅 Agendamento Rápido":
         st.header("📅 Agenda Expressa")
         df = carregar_aba(planilha, "agendamentos")
@@ -178,7 +184,7 @@ def main():
                     ])
                     st.success("Agendado!")
 
-    # === TELA 3: FICHA COMPLETA ===
+    # === FICHA COMPLETA ===
     elif menu == "📝 Ficha Completa (PDF Clone)":
         st.header("📝 Avaliação Detalhada")
         t1, t2, t3, t4, t5 = st.tabs(["👤 Pessoais", "❤️ Saúde/Laser", "📏 Corporal", "✨ Facial/Pele", "💰 Orçamento"])
@@ -293,57 +299,64 @@ def main():
                         st.success("Salvo!")
                     except Exception as e: st.error(f"Erro: {e}")
 
-    # === TELA 4: IMPRESSÃO ===
-    elif menu == "🖨️ Central de Impressão":
-        st.markdown("### 🖨️ Seleção de Impressão") # Mudei para H3 para poder ocultar na impressão
-        df = carregar_aba(planilha, "agendamentos")
-        if not df.empty:
-            st.dataframe(df) # Isso vai sumir na impressão
-            cli = st.selectbox("Selecione o Cliente:", df['Nome_Cliente'].unique()) # Isso também
-            if cli:
-                d = df[df['Nome_Cliente'] == cli].iloc[-1]
-                
-                # A FICHA QUE VAI IMPRIMIR
-                with st.container(border=True):
-                    c_img, c_tit = st.columns([1, 4])
-                    with c_img:
-                        if os.path.exists("logo.png"): st.image("logo.png", width=100)
-                    with c_tit:
-                        st.markdown("## FICHA DE AVALIAÇÃO ESTÉTICA") # H2 aparece
-                    
-                    st.markdown("---")
-                    st.markdown(f"**Data:** {d.get('Data')} | **Cliente:** {d.get('Nome_Cliente')}")
-                    st.markdown(f"**Dados:** {d.get('Dados_Pessoais')}")
-                    
-                    st.markdown("### 🏥 SAÚDE & HISTÓRICO")
-                    st.info(d.get('Anamnese_Geral'))
-                    
-                    st.markdown("### 📏 CORPORAL & HÁBITOS")
-                    st.warning(d.get('Medidas_Corporais'))
-                    
-                    st.markdown("### ✨ FACIAL & PELE")
-                    st.success(d.get('Analise_Facial'))
-                    
-                    st.markdown("### 💰 ORÇAMENTO")
-                    st.markdown(f"**{d.get('Orcamento')}**")
-                    st.markdown("\n\n______________________\nAssinatura")
-                st.info("💡 Dica: Pressione **Ctrl + P**. A tabela e o menu acima irão desaparecer na folha!")
+    # === IMPRESSÃO PROFISSIONAL (HTML PURO) ===
+    elif menu == "🖨️ Impressão Profissional":
+        st.header("🖨️ Gerar Documento Oficial")
+        # Essa parte não imprime, serve só para escolher
+        div_controle = st.container()
+        with div_controle:
+            df = carregar_aba(planilha, "agendamentos")
+            if df.empty:
+                st.info("Nenhuma ficha encontrada.")
+                return
+            st.dataframe(df, height=150) # Mostra tabela pequena
+            cli = st.selectbox("Selecione o Cliente para Gerar o Documento:", df['Nome_Cliente'].unique())
+        
+        if cli:
+            d = df[df['Nome_Cliente'] == cli].iloc[-1]
+            
+            # --- AQUI É O MOLDE DO PAPEL (HTML) ---
+            # Isso é o que vai aparecer na impressão
+            
+            # Tenta pegar logo (se não tiver usa texto)
+            logo_html = ""
+            if os.path.exists("logo.png"):
+                import base64
+                with open("logo.png", "rb") as f:
+                    data = base64.b64encode(f.read()).decode("utf-8")
+                    logo_html = f'<img src="data:image/png;base64,{data}" style="max-width:150px;">'
+            
+            html_ficha = f"""
+            <div class="ficha-papel">
+                <div class="cabecalho">
+                    {logo_html}
+                    <div class="titulo-doc">Ficha de Avaliação Estética</div>
+                    <div class="subtitulo">Clínica Andreza Andrade</div>
+                    <div>Data: {d['Data']} | Hora: {d['Hora']}</div>
+                </div>
 
-    # === TELA 5: DESPESAS ===
-    elif menu == "💸 Registrar Despesa":
-        st.header("💸 Saída de Caixa")
-        with st.form("despesa"):
-            d1, d2 = st.columns(2)
-            dt = d1.date_input("Data")
-            val = d2.number_input("Valor R$", min_value=0.0)
-            desc = st.text_input("Descrição")
-            cat = st.selectbox("Categoria", ["Aluguel", "Luz/Água", "Produtos", "Pessoal", "Outros"])
-            if st.form_submit_button("Lançar"):
-                planilha.worksheet("despesas").append_row([
-                    dt.strftime("%d/%m/%Y"), desc, cat, str(val).replace(".", ",")
-                ])
-                st.success("Lançado!")
-        st.dataframe(carregar_aba(planilha, "despesas"))
+                <div class="secao">
+                    <div class="secao-titulo">1. Dados do Cliente</div>
+                    <div class="conteudo">
+                        <b>Nome:</b> {d['Nome_Cliente']} <br>
+                        <b>Contato:</b> {d['Contato']} <br>
+                        <b>Detalhes:</b> {d['Dados_Pessoais']}
+                    </div>
+                </div>
 
-if __name__ == "__main__":
-    main()
+                <div class="secao">
+                    <div class="secao-titulo">2. Anamnese de Saúde</div>
+                    <div class="conteudo">
+                        {d['Anamnese_Geral']} <br>
+                        <b>Saúde da Mulher:</b> {d['Saude_Mulher']}
+                    </div>
+                </div>
+
+                <div class="secao">
+                    <div class="secao-titulo">3. Medidas Corporais</div>
+                    <div class="conteudo">
+                        {d['Medidas_Corporais']}
+                    </div>
+                </div>
+
+                <div
