@@ -6,56 +6,59 @@ from datetime import date, datetime, time
 import os
 import base64
 
-# --- 1. CONFIGURAÇÃO VISUAL & CSS "NUCLEAR" PARA IMPRESSÃO ---
+# --- 1. CONFIGURAÇÃO VISUAL & CSS DE IMPRESSÃO ---
 st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
 
 st.markdown("""
     <style>
-    /* Estilos normais para a tela do computador */
-    .ficha-papel {
+    /* Estilo da folha na tela do computador */
+    .folha-impressao {
         border: 1px solid #ccc;
-        padding: 30px;
         background-color: white;
+        padding: 2cm;
         margin-top: 20px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        color: black;
+        font-family: "Times New Roman", Times, serif;
     }
 
-    /* --- A MÁGICA DA IMPRESSÃO ACONTECE AQUI --- */
+    /* --- COMANDOS PARA A IMPRESSORA --- */
     @media print {
-        /* 1. Ocultar TUDO que existe na página */
+        /* 1. Esconde TUDO na página (Menus, botões, tabelas, fundo) */
         body * {
             visibility: hidden;
         }
 
-        /* 2. Forçar a visualização APENAS da nossa ficha */
-        .ficha-papel, .ficha-papel * {
+        /* 2. Força APENAS a nossa folha a aparecer */
+        .folha-impressao, .folha-impressao * {
             visibility: visible;
         }
 
-        /* 3. Posicionar a ficha no topo absoluto da folha */
-        .ficha-papel {
+        /* 3. Posiciona a folha no topo do papel, cobrindo tudo */
+        .folha-impressao {
             position: absolute;
             left: 0;
             top: 0;
             width: 100%;
             margin: 0;
-            padding: 2cm; /* Margem de segurança para a folha A4 */
-            border: none; /* Remove a borda cinza na impressão */
-            box-shadow: none;
+            padding: 0;
+            border: none;
         }
         
-        /* Configura a folha para A4 sem cabeçalhos do navegador */
-        @page { size: auto; margin: 0mm; }
+        /* Remove margens extras do navegador */
+        @page { margin: 1.5cm; size: auto; }
     }
+
+    /* Estilos internos do documento */
+    .cabecalho { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; }
+    .titulo { font-size: 24px; font-weight: bold; text-transform: uppercase; margin: 0; }
+    .subtitulo { font-size: 14px; margin-bottom: 5px; }
     
-    /* Estilos bonitos para o documento */
-    .cabecalho { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
-    .titulo-doc { font-size: 26px; font-weight: bold; text-transform: uppercase; margin-top: 10px; }
-    .secao { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-    .secao-titulo { font-weight: bold; font-size: 16px; color: #333; text-transform: uppercase; margin-bottom: 5px; border-left: 5px solid #333; padding-left: 10px; }
-    .conteudo { font-size: 14px; line-height: 1.5; color: #000; }
-    .assinaturas { margin-top: 60px; display: flex; justify-content: space-between; }
-    .campo-ass { border-top: 1px solid #000; width: 45%; text-align: center; padding-top: 5px; font-size: 12px; }
+    .secao-box { margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+    .secao-titulo { font-weight: bold; font-size: 14px; text-transform: uppercase; background-color: #f0f0f0; padding: 2px 5px; display: inline-block; }
+    .conteudo { font-size: 12px; margin-top: 5px; line-height: 1.4; }
+    
+    .assinaturas { margin-top: 50px; display: flex; justify-content: space-between; }
+    .campo-ass { border-top: 1px solid black; width: 40%; text-align: center; font-size: 11px; padding-top: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -85,7 +88,6 @@ def carregar_aba(planilha, nome_aba):
         return df
     except: return pd.DataFrame()
 
-# --- 3. LÓGICA ---
 def verificar_conflito(df, dia, hora):
     if df.empty or 'Data' not in df.columns: return False
     dia_str = dia.strftime("%d/%m/%Y")
@@ -117,10 +119,10 @@ def main():
             "📊 Painel Financeiro",
             "📅 Agendamento Rápido", 
             "📝 Ficha Completa (PDF Clone)", 
-            "🖨️ Impressão Profissional",
+            "🖨️ Central de Impressão",
             "💸 Registrar Despesa"
         ])
-        st.success("V6.6 - Impressão Limpa")
+        st.success("V6.7 - Impressão Oficial")
 
     planilha = conectar_google_sheets()
     if not planilha: return
@@ -286,71 +288,73 @@ def main():
                         st.success("Salvo!")
                     except Exception as e: st.error(f"Erro: {e}")
 
-    # === IMPRESSÃO PROFISSIONAL (HTML PURO) ===
-    elif menu == "🖨️ Impressão Profissional":
+    # === IMPRESSÃO PROFISSIONAL ===
+    elif menu == "🖨️ Central de Impressão":
         st.header("🖨️ Seleção de Documento")
         
-        # CONTROLES (Não aparecem na impressão graças ao CSS)
-        df = carregar_aba(planilha, "agendamentos")
-        if df.empty:
-            st.info("Nenhuma ficha encontrada.")
-            return
-        
-        st.caption("Selecione o cliente abaixo e pressione Ctrl + P. Tudo isto sumirá e ficará apenas o papel.")
-        cli = st.selectbox("Cliente:", df['Nome_Cliente'].unique())
+        # CONTROLES (Não aparecem na impressão)
+        div_controle = st.container()
+        with div_controle:
+            df = carregar_aba(planilha, "agendamentos")
+            if df.empty:
+                st.info("Nenhuma ficha encontrada.")
+                return
+            
+            st.caption("Selecione o cliente e pressione Ctrl + P. Só a ficha aparecerá.")
+            cli = st.selectbox("Cliente:", df['Nome_Cliente'].unique())
         
         if cli:
             d = df[df['Nome_Cliente'] == cli].iloc[-1]
             
-            # Preparar Logo em Base64 para imprimir
+            # Prepara a Logo para o HTML
             logo_html = ""
             if os.path.exists("logo.png"):
                 with open("logo.png", "rb") as f:
                     data = base64.b64encode(f.read()).decode("utf-8")
-                    logo_html = f'<img src="data:image/png;base64,{data}" style="max-width:180px; margin-bottom:10px;">'
+                    logo_html = f'<img src="data:image/png;base64,{data}" style="max-width:150px; display:block; margin: 0 auto;">'
             
-            # --- O DOCUMENTO DE PAPEL (HTML) ---
+            # HTML DA FICHA (O que vai ser impresso)
             html_ficha = f"""
-            <div class="ficha-papel">
+            <div class="folha-impressao">
                 <div class="cabecalho">
                     {logo_html}
-                    <div class="titulo-doc">Ficha de Avaliação Estética</div>
-                    <div style="font-size: 12px; color: #555;">Data do Atendimento: {d['Data']} às {d['Hora']}</div>
+                    <div class="titulo">Ficha de Avaliação Estética</div>
+                    <div class="subtitulo">Clínica Andreza Andrade</div>
+                    <div style="font-size: 12px; margin-top:5px;">Data: {d['Data']} | Hora: {d['Hora']}</div>
                 </div>
 
-                <div class="secao">
+                <div class="secao-box">
                     <div class="secao-titulo">1. DADOS CADASTRAIS</div>
                     <div class="conteudo">
-                        <b>Nome Completo:</b> {d['Nome_Cliente']} <br>
-                        <b>Contato:</b> {d['Contato']} <br>
+                        <b>Nome:</b> {d['Nome_Cliente']} &nbsp;&nbsp; <b>Contato:</b> {d['Contato']} <br>
                         <b>Detalhes:</b> {d['Dados_Pessoais']}
                     </div>
                 </div>
 
-                <div class="secao">
-                    <div class="secao-titulo">2. HISTÓRICO DE SAÚDE (ANAMNESE)</div>
+                <div class="secao-box">
+                    <div class="secao-titulo">2. ANAMNESE E SAÚDE</div>
                     <div class="conteudo">
                         {d['Anamnese_Geral']} <br>
                         <b>Saúde da Mulher / Obs:</b> {d['Saude_Mulher']}
                     </div>
                 </div>
 
-                <div class="secao">
+                <div class="secao-box">
                     <div class="secao-titulo">3. AVALIAÇÃO CORPORAL</div>
                     <div class="conteudo">
                         {d['Medidas_Corporais']}
                     </div>
                 </div>
 
-                <div class="secao">
+                <div class="secao-box">
                     <div class="secao-titulo">4. AVALIAÇÃO FACIAL</div>
                     <div class="conteudo">
                         {d['Analise_Facial']}
                     </div>
                 </div>
 
-                <div class="secao">
-                    <div class="secao-titulo">5. PROPOSTA E ORÇAMENTO</div>
+                <div class="secao-box">
+                    <div class="secao-titulo">5. ORÇAMENTO</div>
                     <div class="conteudo">
                         {d['Orcamento']}
                     </div>
@@ -360,14 +364,10 @@ def main():
                     <div class="campo-ass">Assinatura do(a) Cliente</div>
                     <div class="campo-ass">Assinatura do(a) Profissional</div>
                 </div>
-                
-                <div style="text-align:center; margin-top:20px; font-size:10px; color:#aaa;">
-                    Documento gerado eletronicamente pelo Sistema Clínica Andreza Andrade
-                </div>
             </div>
             """
             
-            # Renderiza o HTML
+            # Exibe o HTML (Isso substitui o erro do texto aparecendo)
             st.markdown(html_ficha, unsafe_allow_html=True)
 
     # === DESPESAS ===
