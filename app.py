@@ -9,52 +9,47 @@ import base64
 # --- 1. CONFIGURAÇÃO VISUAL ---
 st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
 
-# --- 2. CSS DE IMPRESSÃO (O SEGREDO DO PAPEL) ---
-def injetar_css_impressao():
-    st.markdown("""
-        <style>
-        /* Estilo da folha na tela */
+# --- 2. CSS DE IMPRESSÃO (ESTILO DO PAPEL) ---
+# Este bloco define como a folha vai parecer e esconde os menus na hora de imprimir
+st.markdown("""
+    <style>
+    /* Esconde tudo na hora da impressão, menos a folha */
+    @media print {
+        body * { visibility: hidden; }
+        .folha-impressao, .folha-impressao * { visibility: visible; }
         .folha-impressao {
-            border: 1px solid #ccc;
-            background-color: white;
-            padding: 2cm;
-            margin-top: 20px;
-            color: black;
-            font-family: "Times New Roman", Times, serif;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            border: none;
         }
+        @page { size: A4; margin: 1cm; }
+        /* Esconde menu lateral e cabeçalho do Streamlit */
+        [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; }
+    }
 
-        /* COMANDOS PARA A IMPRESSORA */
-        @media print {
-            body * { visibility: hidden; } /* Esconde tudo */
-            .folha-impressao, .folha-impressao * { visibility: visible; } /* Mostra só a ficha */
-            
-            .folha-impressao {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                margin: 0;
-                padding: 0;
-                border: none;
-            }
-            @page { margin: 1.5cm; size: auto; }
-        }
-
-        /* Estilos internos */
-        .cabecalho { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; }
-        .titulo { font-size: 24px; font-weight: bold; text-transform: uppercase; margin: 0; }
-        .subtitulo { font-size: 14px; margin-bottom: 5px; }
-        
-        .secao-box { margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
-        .secao-titulo { font-weight: bold; font-size: 14px; text-transform: uppercase; background-color: #f0f0f0; padding: 2px 5px; display: inline-block; }
-        .conteudo { font-size: 12px; margin-top: 5px; line-height: 1.4; }
-        
-        .assinaturas { margin-top: 50px; display: flex; justify-content: space-between; }
-        .campo-ass { border-top: 1px solid black; width: 40%; text-align: center; font-size: 11px; padding-top: 5px; }
-        </style>
-    """, unsafe_allow_html=True)
-
-injetar_css_impressao()
+    /* Estilo da folha na tela */
+    .folha-impressao {
+        background-color: white;
+        padding: 30px;
+        border: 1px solid #ddd;
+        margin-top: 20px;
+        font-family: 'Times New Roman', Times, serif;
+        color: black;
+    }
+    
+    .cabecalho { text-align: center; border-bottom: 2px solid black; margin-bottom: 20px; padding-bottom: 10px; }
+    .titulo { font-size: 22px; font-weight: bold; text-transform: uppercase; margin: 0; }
+    .secao { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    .secao-titulo { font-weight: bold; font-size: 14px; text-transform: uppercase; background-color: #f2f2f2; padding: 4px; display: block; margin-bottom: 5px; border-left: 4px solid #333; }
+    .conteudo { font-size: 12px; line-height: 1.4; padding-left: 5px; }
+    .assinaturas { margin-top: 50px; display: flex; justify-content: space-between; }
+    .campo-ass { border-top: 1px solid black; width: 40%; text-align: center; font-size: 11px; padding-top: 5px; }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- 3. CONEXÃO ---
 def conectar_google_sheets():
@@ -116,7 +111,7 @@ def main():
             "🖨️ Impressão Profissional",
             "💸 Registrar Despesa"
         ])
-        st.success("V6.8 - Renderização Corrigida")
+        st.success("V6.9 - Final")
 
     planilha = conectar_google_sheets()
     if not planilha: return
@@ -300,71 +295,53 @@ def main():
         if cli:
             d = df[df['Nome_Cliente'] == cli].iloc[-1]
             
-            # Prepara a Logo para o HTML
+            # --- CONSTRUÇÃO DO HTML (SEM F-STRING GIGANTE PARA NÃO DAR ERRO) ---
+            
+            # Logo
             logo_html = ""
             if os.path.exists("logo.png"):
                 with open("logo.png", "rb") as f:
                     data = base64.b64encode(f.read()).decode("utf-8")
                     logo_html = f'<img src="data:image/png;base64,{data}" style="max-width:150px; display:block; margin: 0 auto;">'
             
-            # HTML DA FICHA
-            html_ficha = f"""
-            <div class="folha-impressao">
-                <div class="cabecalho">
-                    {logo_html}
-                    <div class="titulo">Ficha de Avaliação Estética</div>
-                    <div class="subtitulo">Clínica Andreza Andrade</div>
-                    <div style="font-size: 12px; margin-top:5px;">Data: {d['Data']} | Hora: {d['Hora']}</div>
-                </div>
-
-                <div class="secao-box">
-                    <div class="secao-titulo">1. DADOS CADASTRAIS</div>
-                    <div class="conteudo">
-                        <b>Nome:</b> {d['Nome_Cliente']} &nbsp;&nbsp; <b>Contato:</b> {d['Contato']} <br>
-                        <b>Detalhes:</b> {d['Dados_Pessoais']}
-                    </div>
-                </div>
-
-                <div class="secao-box">
-                    <div class="secao-titulo">2. ANAMNESE E SAÚDE</div>
-                    <div class="conteudo">
-                        {d['Anamnese_Geral']} <br>
-                        <b>Saúde da Mulher / Obs:</b> {d['Saude_Mulher']}
-                    </div>
-                </div>
-
-                <div class="secao-box">
-                    <div class="secao-titulo">3. AVALIAÇÃO CORPORAL</div>
-                    <div class="conteudo">
-                        {d['Medidas_Corporais']}
-                    </div>
-                </div>
-
-                <div class="secao-box">
-                    <div class="secao-titulo">4. AVALIAÇÃO FACIAL</div>
-                    <div class="conteudo">
-                        {d['Analise_Facial']}
-                    </div>
-                </div>
-
-                <div class="secao-box">
-                    <div class="secao-titulo">5. ORÇAMENTO</div>
-                    <div class="conteudo">
-                        {d['Orcamento']}
-                    </div>
-                </div>
-
-                <div class="assinaturas">
-                    <div class="campo-ass">Assinatura do(a) Cliente</div>
-                    <div class="campo-ass">Assinatura do(a) Profissional</div>
-                </div>
-            </div>
-            """
+            # Montagem bloco a bloco (Mais seguro)
+            html = '<div class="folha-impressao">'
             
-            # ATENÇÃO: Esta é a linha que faz a mágica.
-            # Se você usar st.code ou st.text, vai sair código.
-            # Tem que ser st.markdown com unsafe_allow_html=True
-            st.markdown(html_ficha, unsafe_allow_html=True)
+            # Cabeçalho
+            html += f'<div class="cabecalho">{logo_html}'
+            html += '<div class="titulo">Ficha de Avaliação Estética</div>'
+            html += '<div class="subtitulo">Clínica Andreza Andrade</div>'
+            html += f'<div style="font-size: 12px; margin-top:5px;">Data: {d["Data"]} | Hora: {d["Hora"]}</div></div>'
+            
+            # Seção 1
+            html += '<div class="secao"><span class="secao-titulo">1. DADOS CADASTRAIS</span>'
+            html += f'<div class="conteudo"><b>Nome:</b> {d["Nome_Cliente"]} &nbsp;&nbsp; <b>Contato:</b> {d["Contato"]}<br>'
+            html += f'<b>Detalhes:</b> {d["Dados_Pessoais"]}</div></div>'
+            
+            # Seção 2
+            html += '<div class="secao"><span class="secao-titulo">2. ANAMNESE E SAÚDE</span>'
+            html += f'<div class="conteudo">{d["Anamnese_Geral"]}<br><b>Saúde da Mulher / Obs:</b> {d["Saude_Mulher"]}</div></div>'
+            
+            # Seção 3
+            html += '<div class="secao"><span class="secao-titulo">3. AVALIAÇÃO CORPORAL</span>'
+            html += f'<div class="conteudo">{d["Medidas_Corporais"]}</div></div>'
+            
+            # Seção 4
+            html += '<div class="secao"><span class="secao-titulo">4. AVALIAÇÃO FACIAL</span>'
+            html += f'<div class="conteudo">{d["Analise_Facial"]}</div></div>'
+            
+            # Seção 5
+            html += '<div class="secao"><span class="secao-titulo">5. ORÇAMENTO</span>'
+            html += f'<div class="conteudo">{d["Orcamento"]}</div></div>'
+            
+            # Rodapé
+            html += '<div class="assinaturas"><div class="campo-ass">Assinatura do(a) Cliente</div>'
+            html += '<div class="campo-ass">Assinatura do(a) Profissional</div></div>'
+            
+            html += '</div>' # Fecha folha
+            
+            # Renderiza
+            st.markdown(html, unsafe_allow_html=True)
 
     # === DESPESAS ===
     elif menu == "💸 Registrar Despesa":
