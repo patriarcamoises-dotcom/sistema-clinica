@@ -6,63 +6,57 @@ from datetime import date, datetime, time
 import os
 import base64
 
-# --- 1. CONFIGURAÇÃO VISUAL & CSS DE IMPRESSÃO ---
+# --- 1. CONFIGURAÇÃO VISUAL ---
 st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
 
-st.markdown("""
-    <style>
-    /* Estilo da folha na tela do computador */
-    .folha-impressao {
-        border: 1px solid #ccc;
-        background-color: white;
-        padding: 2cm;
-        margin-top: 20px;
-        color: black;
-        font-family: "Times New Roman", Times, serif;
-    }
-
-    /* --- COMANDOS PARA A IMPRESSORA --- */
-    @media print {
-        /* 1. Esconde TUDO na página (Menus, botões, tabelas, fundo) */
-        body * {
-            visibility: hidden;
-        }
-
-        /* 2. Força APENAS a nossa folha a aparecer */
-        .folha-impressao, .folha-impressao * {
-            visibility: visible;
-        }
-
-        /* 3. Posiciona a folha no topo do papel, cobrindo tudo */
+# --- 2. CSS DE IMPRESSÃO (O SEGREDO DO PAPEL) ---
+def injetar_css_impressao():
+    st.markdown("""
+        <style>
+        /* Estilo da folha na tela */
         .folha-impressao {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 0;
-            border: none;
+            border: 1px solid #ccc;
+            background-color: white;
+            padding: 2cm;
+            margin-top: 20px;
+            color: black;
+            font-family: "Times New Roman", Times, serif;
         }
+
+        /* COMANDOS PARA A IMPRESSORA */
+        @media print {
+            body * { visibility: hidden; } /* Esconde tudo */
+            .folha-impressao, .folha-impressao * { visibility: visible; } /* Mostra só a ficha */
+            
+            .folha-impressao {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 0;
+                border: none;
+            }
+            @page { margin: 1.5cm; size: auto; }
+        }
+
+        /* Estilos internos */
+        .cabecalho { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; }
+        .titulo { font-size: 24px; font-weight: bold; text-transform: uppercase; margin: 0; }
+        .subtitulo { font-size: 14px; margin-bottom: 5px; }
         
-        /* Remove margens extras do navegador */
-        @page { margin: 1.5cm; size: auto; }
-    }
+        .secao-box { margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        .secao-titulo { font-weight: bold; font-size: 14px; text-transform: uppercase; background-color: #f0f0f0; padding: 2px 5px; display: inline-block; }
+        .conteudo { font-size: 12px; margin-top: 5px; line-height: 1.4; }
+        
+        .assinaturas { margin-top: 50px; display: flex; justify-content: space-between; }
+        .campo-ass { border-top: 1px solid black; width: 40%; text-align: center; font-size: 11px; padding-top: 5px; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    /* Estilos internos do documento */
-    .cabecalho { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; }
-    .titulo { font-size: 24px; font-weight: bold; text-transform: uppercase; margin: 0; }
-    .subtitulo { font-size: 14px; margin-bottom: 5px; }
-    
-    .secao-box { margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
-    .secao-titulo { font-weight: bold; font-size: 14px; text-transform: uppercase; background-color: #f0f0f0; padding: 2px 5px; display: inline-block; }
-    .conteudo { font-size: 12px; margin-top: 5px; line-height: 1.4; }
-    
-    .assinaturas { margin-top: 50px; display: flex; justify-content: space-between; }
-    .campo-ass { border-top: 1px solid black; width: 40%; text-align: center; font-size: 11px; padding-top: 5px; }
-    </style>
-""", unsafe_allow_html=True)
+injetar_css_impressao()
 
-# --- 2. CONEXÃO ---
+# --- 3. CONEXÃO ---
 def conectar_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
@@ -119,10 +113,10 @@ def main():
             "📊 Painel Financeiro",
             "📅 Agendamento Rápido", 
             "📝 Ficha Completa (PDF Clone)", 
-            "🖨️ Central de Impressão",
+            "🖨️ Impressão Profissional",
             "💸 Registrar Despesa"
         ])
-        st.success("V6.7 - Impressão Oficial")
+        st.success("V6.8 - Renderização Corrigida")
 
     planilha = conectar_google_sheets()
     if not planilha: return
@@ -289,10 +283,10 @@ def main():
                     except Exception as e: st.error(f"Erro: {e}")
 
     # === IMPRESSÃO PROFISSIONAL ===
-    elif menu == "🖨️ Central de Impressão":
+    elif menu == "🖨️ Impressão Profissional":
         st.header("🖨️ Seleção de Documento")
         
-        # CONTROLES (Não aparecem na impressão)
+        # CONTROLES
         div_controle = st.container()
         with div_controle:
             df = carregar_aba(planilha, "agendamentos")
@@ -313,7 +307,7 @@ def main():
                     data = base64.b64encode(f.read()).decode("utf-8")
                     logo_html = f'<img src="data:image/png;base64,{data}" style="max-width:150px; display:block; margin: 0 auto;">'
             
-            # HTML DA FICHA (O que vai ser impresso)
+            # HTML DA FICHA
             html_ficha = f"""
             <div class="folha-impressao">
                 <div class="cabecalho">
@@ -367,7 +361,9 @@ def main():
             </div>
             """
             
-            # Exibe o HTML (Isso substitui o erro do texto aparecendo)
+            # ATENÇÃO: Esta é a linha que faz a mágica.
+            # Se você usar st.code ou st.text, vai sair código.
+            # Tem que ser st.markdown com unsafe_allow_html=True
             st.markdown(html_ficha, unsafe_allow_html=True)
 
     # === DESPESAS ===
