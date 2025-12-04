@@ -63,14 +63,20 @@ def carregar_dados(planilha, aba):
         return pd.DataFrame(linhas_limpas, columns=cols_limpas)
     except: return pd.DataFrame()
 
-def get_logo():
+# Função para encontrar o arquivo da logo (caminho)
+def get_logo_path():
     pasta = os.path.dirname(os.path.abspath(__file__))
-    for n in ["LOGO.png", "logo.png"]:
+    for n in ["LOGO.png", "logo.png", "Logo.png"]:
         path = os.path.join(pasta, n)
-        if os.path.exists(path):
-            with open(path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            return f'<img src="data:image/png;base64,{b64}" style="max-height:80px; display:block; margin:0 auto;">'
+        if os.path.exists(path): return path
+    return None
+
+# Função para converter a logo em HTML para impressão
+def get_logo_html(path):
+    if path and os.path.exists(path):
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return f'<img src="data:image/png;base64,{b64}" style="max-height:100px; display:block; margin:0 auto;">'
     return ""
 
 def get_val(linha, chaves):
@@ -84,9 +90,21 @@ def lista_checks(dic):
 
 # --- 3. APP ---
 def main():
-    st.sidebar.title("🏥 Menu")
-    menu = st.sidebar.radio("Ir para:", ["📅 Agenda", "📝 Ficha Completa", "🖨️ Impressão", "📊 Financeiro", "💸 Despesas"])
-    logo = get_logo()
+    # --- BARRA LATERAL (MENU) ---
+    logo_path = get_logo_path()
+    
+    with st.sidebar:
+        # 1. MOSTRA A LOGO NO TOPO DO MENU
+        if logo_path:
+            st.image(logo_path, use_container_width=True)
+        else:
+            st.title("🏥 Clínica")
+            
+        st.header("Menu Principal")
+        menu = st.radio("Ir para:", ["📅 Agenda", "📝 Ficha Completa", "🖨️ Impressão", "📊 Financeiro", "💸 Despesas"])
+        st.divider()
+        if st.button("🔄 Recarregar Sistema"): st.rerun()
+
     planilha = conectar()
     if not planilha: st.error("Erro Conexão"); st.stop()
 
@@ -108,7 +126,7 @@ def main():
                 planilha.worksheet("agendamentos").append_row([d.strftime("%d/%m/%Y"), str(h), n, z, "", "", "", "", "", "", "Agendado"])
                 st.success("Salvo!"); t.sleep(1); st.rerun()
 
-    # === FICHA (AGORA COMPLETA) ===
+    # === FICHA ===
     elif menu == "📝 Ficha Completa":
         st.title("📝 Ficha Detalhada")
         df = carregar_dados(planilha, "agendamentos")
@@ -193,12 +211,12 @@ def main():
             if st.form_submit_button("💾 SALVAR TUDO"):
                 pess = f"Nasc:{dt} Prof:{pf}"
                 chk_txt = lista_checks(ck)
-                ana_fin = f"Checks:{chk_txt} | {osa}" # Coluna F
-                saude_fin = f"Detalhes:{osmulher}" # Coluna G
-                med_fin = f"Peso:{pes} Alt:{alt} Busto:{busto} Cint:{cint} Abd:{abd} Quad:{quad} Coxa:{coxa} Culote:{culote} Braço:{braco} | Obs:{oco}" # Coluna H
+                ana_fin = f"Checks:{chk_txt} | {osa}" 
+                saude_fin = f"Detalhes:{osmulher}"
+                med_fin = f"Peso:{pes} Alt:{alt} Busto:{busto} Cint:{cint} Abd:{abd} Quad:{quad} Coxa:{coxa} Culote:{culote} Braço:{braco} | Obs:{oco}"
                 face_checks = lista_checks(ck_face)
-                face_fin = f"Foto:{foto} Pele:{pele} | {face_checks} | {ofa}" # Coluna I
-                orc_fin = f"Trat:{tr} Pag:{pg} Val:{vl}" # Coluna J
+                face_fin = f"Foto:{foto} Pele:{pele} | {face_checks} | {ofa}"
+                orc_fin = f"Trat:{tr} Pag:{pg} Val:{vl}"
                 
                 planilha.worksheet("agendamentos").append_row([
                     date.today().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"),
@@ -218,9 +236,12 @@ def main():
         sel = st.selectbox("Cliente:", ["..."]+lst)
         if sel != "..." and col_n:
             d = df[df[col_n] == sel].iloc[-1]
+            # LOGO PARA PDF
+            logo_html = get_logo_html(logo_path)
+            
             html = f"""
             <div class="folha-impressao">
-                <div style="text-align:center;">{logo}<h3>FICHA DE AVALIAÇÃO</h3><small>{d.get('Data','')}</small></div><br>
+                <div style="text-align:center;">{logo_html}<h3>FICHA DE AVALIAÇÃO</h3><small>{d.get('Data','')}</small></div><br>
                 <div style="border-bottom:1px solid #ccc; padding:5px;"><b>1. DADOS:</b> {d.get(col_n)} | {get_val(d,['contato'])}<br>{get_val(d,['dados'])}</div>
                 <div style="border-bottom:1px solid #ccc; padding:5px;"><b>2. SAÚDE:</b> {get_val(d,['anamnese'])}<br>{get_val(d,['saude'])}</div>
                 <div style="border-bottom:1px solid #ccc; padding:5px;"><b>3. CORPO/FACE:</b> {get_val(d,['medidas'])}<br>{get_val(d,['facial'])}</div>
