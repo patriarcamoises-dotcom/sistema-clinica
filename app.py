@@ -7,8 +7,9 @@ import os
 import base64
 import time as t
 
-# --- 1. CONFIGURAÇÃO ---
-st.set_page_config(page_title="Sistema Clínica", layout="wide", page_icon="🏥")
+# --- 1. CONFIGURAÇÃO (AQUI ESTÁ A MUDANÇA DO ÍCONE) ---
+# Se o nome do arquivo na sua pasta for diferente de LOGO.png, ajuste aqui.
+st.set_page_config(page_title="Sistema Clínica", layout="wide", page_icon="LOGO.png")
 
 st.markdown("""
     <meta name="google" content="notranslate">
@@ -237,7 +238,7 @@ def main():
             st.markdown(html, unsafe_allow_html=True)
             st.info("Aperte Ctrl + P. Na janela que abrir, mude 'Destino' para sua Impressora.")
 
-    # === FINANCEIRO (AGORA FUNCIONA!) ===
+    # === FINANCEIRO ===
     elif menu == "📊 Financeiro":
         st.header("📊 Fluxo de Caixa")
         df_ag = carregar_dados(planilha, "agendamentos")
@@ -251,13 +252,12 @@ def main():
             for col in df_ag.columns:
                 if "orcamento" in col.lower():
                     for item in df_ag[col].astype(str):
-                        # Limpa o texto "Valor: R$ 100.0" para virar número 100.0
                         if "Val:" in item:
                             try:
                                 v = item.split("Val:")[1].strip()
                                 ent += float(v.replace(",", "."))
                             except: pass
-                        elif "Valor:" in item: # Compatibilidade antiga
+                        elif "Valor:" in item:
                              try:
                                 v = item.split("R$")[1].strip()
                                 ent += float(v.replace(",", "."))
