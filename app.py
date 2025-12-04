@@ -5,359 +5,329 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, time
 import os
 import base64
+import time as t
 
-# --- 1. CONFIGURAÇÃO VISUAL ---
-st.set_page_config(page_title="Gestão Clínica Total", layout="wide", page_icon="logo.png")
+# --- 1. CONFIGURAÇÃO ---
+st.set_page_config(page_title="Sistema Clínica", layout="wide", page_icon="🏥")
 
-# --- 2. CSS DE IMPRESSÃO (ESTILO DO PAPEL) ---
-# Este bloco define como a folha vai parecer e esconde os menus na hora de imprimir
 st.markdown("""
+    <meta name="google" content="notranslate">
     <style>
-    /* Esconde tudo na hora da impressão, menos a folha */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
     @media print {
         body * { visibility: hidden; }
         .folha-impressao, .folha-impressao * { visibility: visible; }
-        .folha-impressao {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 0;
-            border: none;
-        }
-        @page { size: A4; margin: 1cm; }
-        /* Esconde menu lateral e cabeçalho do Streamlit */
-        [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; }
+        .folha-impressao { position: absolute; left: 0; top: 0; width: 100%; }
+        [data-testid="stSidebar"] { display: none !important; }
     }
-
-    /* Estilo da folha na tela */
-    .folha-impressao {
-        background-color: white;
-        padding: 30px;
-        border: 1px solid #ddd;
-        margin-top: 20px;
-        font-family: 'Times New Roman', Times, serif;
-        color: black;
+    .folha-impressao { 
+        background-color: white; padding: 40px; border: 1px solid #ddd; 
+        font-family: 'Arial', sans-serif; color: black; margin-top: 20px;
     }
-    
-    .cabecalho { text-align: center; border-bottom: 2px solid black; margin-bottom: 20px; padding-bottom: 10px; }
-    .titulo { font-size: 22px; font-weight: bold; text-transform: uppercase; margin: 0; }
-    .secao { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-    .secao-titulo { font-weight: bold; font-size: 14px; text-transform: uppercase; background-color: #f2f2f2; padding: 4px; display: block; margin-bottom: 5px; border-left: 4px solid #333; }
-    .conteudo { font-size: 12px; line-height: 1.4; padding-left: 5px; }
-    .assinaturas { margin-top: 50px; display: flex; justify-content: space-between; }
-    .campo-ass { border-top: 1px solid black; width: 40%; text-align: center; font-size: 11px; padding-top: 5px; }
+    .titulo-imp { text-align: center; font-size: 22px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
+    .secao-imp { background-color: #f4f4f4; padding: 5px; font-weight: bold; border-left: 4px solid #333; margin-top: 15px; font-size: 12px; }
+    .texto-imp { margin-top: 5px; font-size: 12px; line-height: 1.4; text-align: justify; }
+    .aviso-ok { background-color: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. CONEXÃO ---
-def conectar_google_sheets():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# --- 2. FUNÇÕES TÉCNICAS ---
+def conectar():
     try:
-        if "gcp_service_account" in st.secrets:
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
-        else:
-            creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+        pasta = os.path.dirname(os.path.abspath(__file__))
+        caminho = os.path.join(pasta, "credentials.json")
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(caminho, scope)
         client = gspread.authorize(creds)
         return client.open("sistema_clinica")
-    except: return None
+    except Exception as e:
+        st.error(f"❌ Erro na Conexão: {e}")
+        return None
 
-def carregar_aba(planilha, nome_aba):
+def carregar_dados(planilha, aba):
     try:
-        sheet = planilha.worksheet(nome_aba)
-        df = pd.DataFrame(sheet.get_all_records())
-        if nome_aba == "agendamentos" and (df.empty or 'Data' not in df.columns):
-            cols = ["Data", "Hora", "Nome_Cliente", "Contato", "Dados_Pessoais",
-                    "Anamnese_Geral", "Saude_Mulher", "Medidas_Corporais", 
-                    "Analise_Facial", "Orcamento", "Status"]
-            return pd.DataFrame(columns=cols)
-        if nome_aba == "despesas" and (df.empty or 'Valor' not in df.columns):
-            return pd.DataFrame(columns=["Data", "Descricao", "Categoria", "Valor"])
-        return df
-    except: return pd.DataFrame()
-
-def verificar_conflito(df, dia, hora):
-    if df.empty or 'Data' not in df.columns: return False
-    dia_str = dia.strftime("%d/%m/%Y")
-    hora_str = hora.strftime("%H:%M")
-    conflito = df[
-        (df['Data'].astype(str).str.contains(dia_str, regex=False)) & 
-        (df['Hora'].astype(str).str.contains(hora_str, regex=False))
-    ]
-    return not conflito.empty
-
-def limpar_valor(v):
-    try:
-        if isinstance(v, (int, float)): return float(v)
-        txt = str(v)
-        if "Valor: R$" in txt: txt = txt.split("Valor: R$")[1].strip()
-        return float(txt.replace("R$", "").replace(".", "").replace(",", "."))
-    except: return 0.0
-
-def processar_checkboxes(dicionario):
-    itens = [k for k, v in dicionario.items() if v]
-    return ", ".join(itens) if itens else "Nada"
-
-# --- 4. SISTEMA ---
-def main():
-    with st.sidebar:
-        if os.path.exists("logo.png"): st.image("logo.png", width=200)
-        st.title("Menu Clínica")
-        menu = st.radio("Navegação:", [
-            "📊 Painel Financeiro",
-            "📅 Agendamento Rápido", 
-            "📝 Ficha Completa (PDF Clone)", 
-            "🖨️ Impressão Profissional",
-            "💸 Registrar Despesa"
-        ])
-        st.success("V6.9 - Final")
-
-    planilha = conectar_google_sheets()
-    if not planilha: return
-
-    # === FINANCEIRO ===
-    if menu == "📊 Painel Financeiro":
-        st.header("📊 Fluxo de Caixa")
-        df_ag = carregar_aba(planilha, "agendamentos")
-        df_dp = carregar_aba(planilha, "despesas")
-        c1, c2 = st.columns(2)
-        mes = c1.selectbox("Mês", range(1,13), index=datetime.now().month-1)
-        ano = c2.number_input("Ano", value=datetime.now().year)
+        ws = planilha.worksheet(aba)
+        dados = ws.get_all_values()
         
-        rec = 0.0
-        if not df_ag.empty and 'Orcamento' in df_ag.columns:
-            df_ag['Dt'] = pd.to_datetime(df_ag['Data'], dayfirst=True, errors='coerce')
-            f = df_ag[(df_ag['Dt'].dt.month == mes) & (df_ag['Dt'].dt.year == ano)]
-            for item in f['Orcamento']: rec += limpar_valor(item)
-        desp = 0.0
-        if not df_dp.empty:
-            df_dp['Dt'] = pd.to_datetime(df_dp['Data'], dayfirst=True, errors='coerce')
-            f2 = df_dp[(df_dp['Dt'].dt.month == mes) & (df_dp['Dt'].dt.year == ano)]
-            desp = f2['Valor'].apply(lambda x: limpar_valor(str(x))).sum()
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Entradas", f"R$ {rec:,.2f}")
-        k2.metric("Saídas", f"R$ {desp:,.2f}")
-        k3.metric("Lucro", f"R$ {rec-desp:,.2f}")
+        if len(dados) < 2: return pd.DataFrame()
+        
+        # TRATAMENTO DE ERRO DE COLUNAS DUPLICADAS
+        cabecalho = dados[0]
+        # Remove colunas vazias do cabeçalho
+        indices_validos = [i for i, nome in enumerate(cabecalho) if nome.strip() != ""]
+        cabecalho_limpo = [cabecalho[i] for i in indices_validos]
+        
+        linhas_limpas = []
+        for linha in dados[1:]:
+            # Pega apenas os dados das colunas válidas
+            nova_linha = [linha[i] if i < len(linha) else "" for i in indices_validos]
+            linhas_limpas.append(nova_linha)
+            
+        return pd.DataFrame(linhas_limpas, columns=cabecalho_limpo)
+    except Exception as e:
+        st.error(f"⚠️ Erro ao ler aba '{aba}': {e}")
+        return pd.DataFrame()
 
-    # === AGENDAMENTO ===
-    elif menu == "📅 Agendamento Rápido":
-        st.header("📅 Agenda Expressa")
-        df = carregar_aba(planilha, "agendamentos")
-        with st.form("rapido"):
+def carregar_logo_html():
+    pasta = os.path.dirname(os.path.abspath(__file__))
+    # Tenta achar a logo com maiúscula ou minúscula
+    caminho = os.path.join(pasta, "LOGO.png")
+    if not os.path.exists(caminho):
+        caminho = os.path.join(pasta, "logo.png")
+    
+    if os.path.exists(caminho):
+        with open(caminho, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return f'<img src="data:image/png;base64,{b64}" style="max-height:80px; display:block; margin:0 auto;">'
+    return ""
+
+def processar_checks(dicionario):
+    return ", ".join([k for k, v in dicionario.items() if v])
+
+def get_valor(linha, chaves):
+    for k in linha.index:
+        for c in chaves:
+            if c.lower() in k.lower(): return str(linha[k])
+    return ""
+
+# --- 3. PROGRAMA PRINCIPAL ---
+def main():
+    st.sidebar.title("🏥 Menu")
+    menu = st.sidebar.radio("Ir para:", ["📅 Agenda", "📝 Ficha Completa", "🖨️ Impressão", "📊 Financeiro", "💸 Despesas"])
+    
+    # Exibe a logo na barra lateral também
+    logo_html = carregar_logo_html()
+    if "img" not in logo_html: # Se não achou imagem, não mostra erro
+        pass 
+
+    if st.sidebar.button("🔄 Recarregar"): st.rerun()
+
+    planilha = conectar()
+    if not planilha: st.stop()
+
+    # === AGENDA ===
+    if menu == "📅 Agenda":
+        st.title("📅 Agenda")
+        df = carregar_dados(planilha, "agendamentos")
+        
+        if not df.empty:
+            busca = st.text_input("🔎 Pesquisar:")
+            if busca:
+                st.dataframe(df[df.astype(str).apply(lambda x: x.str.contains(busca, case=False)).any(axis=1)], use_container_width=True)
+            else:
+                st.dataframe(df, use_container_width=True)
+        
+        st.divider()
+        st.subheader("Novo Agendamento")
+        with st.form("agenda"):
             c1, c2 = st.columns(2)
             nome = c1.text_input("Nome")
             zap = c2.text_input("WhatsApp")
             c3, c4 = st.columns(2)
-            dia = c3.date_input("Data", min_value=date.today())
+            dia = c3.date_input("Data", value=date.today())
             hora = c4.time_input("Hora", value=time(9,0))
-            obs = st.text_input("Motivo")
-            if st.form_submit_button("Agendar"):
-                if verificar_conflito(df, dia, hora): st.error("Ocupado!")
-                elif not nome: st.warning("Nome obrigatório")
-                else:
-                    planilha.worksheet("agendamentos").append_row([
-                        dia.strftime("%d/%m/%Y"), str(hora), nome, zap, 
-                        "-", "-", "-", "-", "-", obs, "Agendado"
-                    ])
-                    st.success("Agendado!")
+            if st.form_submit_button("Salvar"):
+                planilha.worksheet("agendamentos").append_row([
+                    dia.strftime("%d/%m/%Y"), str(hora), nome, zap, 
+                    "-", "-", "-", "-", "-", "-", "Agendado"
+                ])
+                st.success("Salvo!")
+                t.sleep(1)
+                st.rerun()
 
-    # === FICHA COMPLETA ===
-    elif menu == "📝 Ficha Completa (PDF Clone)":
-        st.header("📝 Avaliação Detalhada")
-        t1, t2, t3, t4, t5 = st.tabs(["👤 Pessoais", "❤️ Saúde/Laser", "📏 Corporal", "✨ Facial/Pele", "💰 Orçamento"])
+    # === FICHA COMPLETA (COM TUDO DE VOLTA) ===
+    elif menu == "📝 Ficha Completa":
+        st.title("📝 Avaliação Detalhada")
+        df = carregar_dados(planilha, "agendamentos")
         
-        with st.form("ficha_full"):
+        v_nome, v_tel, v_anam, v_saude, v_corp, v_facial = "", "", "", "", "", ""
+
+        # PESQUISA
+        st.markdown("##### 🔍 1. Selecione o Cliente")
+        lista_nomes = []
+        col_nome_real = ""
+        if not df.empty:
+            for c in df.columns:
+                if "nome" in c.lower():
+                    lista_nomes = df[c].unique().tolist()
+                    col_nome_real = c
+                    break
+        
+        if not lista_nomes:
+            sel = st.selectbox("Cliente:", ["..."])
+        else:
+            sel = st.selectbox("Digite ou selecione:", ["..."] + lista_nomes)
+
+        if sel != "..." and col_nome_real:
+            d_cli = df[df[col_nome_real] == sel]
+            ultimo = d_cli.iloc[-1]
+            v_nome = str(ultimo[col_nome_real])
+            v_tel = get_valor(ultimo, ["contato", "tel", "zap"])
+            
+            # Histórico
+            for i in range(len(d_cli)-1, -1, -1):
+                linha = d_cli.iloc[i]
+                if not v_anam: v_anam = get_valor(linha, ["anamnese"])
+                if not v_saude: v_saude = get_valor(linha, ["saude", "mulher"])
+                if not v_corp: v_corp = get_valor(linha, ["medidas", "corporal"])
+                if not v_facial: v_facial = get_valor(linha, ["facial", "analise"])
+            
+            if v_anam or v_saude:
+                st.markdown(f'<div class="aviso-ok">✅ Histórico encontrado! Os dados foram carregados abaixo.</div>', unsafe_allow_html=True)
+
+        # FORMULÁRIO DETALHADO
+        with st.form("ficha"):
+            t1, t2, t3, t4, t5 = st.tabs(["Pessoais", "Saúde/Laser", "Corporal", "Facial", "Orçamento"])
+            
             with t1:
-                st.subheader("1. Identificação")
                 c1, c2 = st.columns(2)
-                nome = c1.text_input("Nome Completo")
-                nasc = c2.text_input("Data Nascimento")
+                nome = c1.text_input("Nome", value=v_nome)
+                tel = c2.text_input("Telefone", value=v_tel)
                 c3, c4 = st.columns(2)
-                cpf = c3.text_input("CPF")
-                prof = c4.text_input("Profissão")
-                end = st.text_input("Endereço Completo")
-                tel = st.text_input("Telefone")
-                captacao = st.selectbox("Indicação/Origem", ["Instagram", "Facebook", "Indicação", "Outro"])
+                nasc = c3.text_input("Data Nascimento")
+                prof = c4.text_input("Profissão / CPF")
+            
             with t2:
-                st.subheader("2. Anamnese")
-                colA, colB, colC = st.columns(3)
-                with colA:
-                    st.markdown("**Clínico:**")
-                    saude_check = {
-                        "Alergia": st.checkbox("Alergias?"),
-                        "Medicamentos": st.checkbox("Usa Medicamentos?"),
-                        "Trat_Medico": st.checkbox("Tratamento médico?"),
-                        "Oncologico": st.checkbox("Hist. Oncológicos?"),
-                        "Cardiaco": st.checkbox("Cardíaco/Marcapasso?"),
-                        "Hepatite": st.checkbox("Hepatite/Renal?"),
-                        "Epilepsia": st.checkbox("Epilepsia?")
-                    }
-                with colB:
-                    st.markdown("**Pele:**")
-                    pele_check = {
-                        "Queloides": st.checkbox("Quelóides?"),
-                        "Foliculite": st.checkbox("Foliculite?"),
-                        "Manchas": st.checkbox("Manchas?"),
-                        "Psoriase": st.checkbox("Psoríase?"),
-                        "Varizes": st.checkbox("Varizes/Trombose?")
-                    }
-                with colC:
-                    st.markdown("**Laser:**")
-                    laser_check = {
-                        "Depilacao_Ant": st.checkbox("Já fez depilação?"),
-                        "Sol": st.checkbox("Sol Recente?"),
-                        "Acidos": st.checkbox("Usa Ácidos?"),
-                        "Roacutan": st.checkbox("Roacutan?")
-                    }
-                st.markdown("**Mulher:**")
-                cm1, cm2, cm3 = st.columns(3)
-                gestante = cm1.checkbox("Gestante/Amamentando?")
-                diu = cm2.checkbox("Usa DIU?")
-                hormonal = cm3.checkbox("Hormonal?")
-                obs_saude = st.text_area("Observações")
+                st.markdown("**Histórico Clínico:**")
+                ca, cb, cc = st.columns(3)
+                # CHECKBOXES VOLTARAM
+                check_saude = {
+                    "Alergia": ca.checkbox("Alergias"), "Medicamentos": cb.checkbox("Usa Medicamentos"), "Trat. Médico": cc.checkbox("Tratamento Médico"),
+                    "Oncológico": ca.checkbox("Hist. Oncológico"), "Cardíaco": cb.checkbox("Cardíaco/Marcapasso"), "Gestante": cc.checkbox("Gestante"),
+                    "DIU": ca.checkbox("Usa DIU"), "Hormonal": cb.checkbox("Alteração Hormonal"), "Sol": cc.checkbox("Sol Recente")
+                }
+                obs_saude = st.text_area("Obs. Saúde / Queixas", value=v_anam, height=100)
+            
             with t3:
-                st.subheader("3. Corporal")
-                ch1, ch2, ch3 = st.columns(3)
-                intestino = ch1.selectbox("Intestino", ["Regular", "Preso", "Irregular"])
-                sono = ch2.selectbox("Sono", ["Boa", "Regular", "Ruim"])
-                agua = ch3.selectbox("Água", ["Sim (+2L)", "Pouco", "Não"])
-                ativ = st.checkbox("Ativ. Física / Fumante / Álcool?")
-                
+                st.markdown("**Medidas Corporais:**")
+                # MEDIDAS DETALHADAS VOLTARAM
                 m1, m2, m3 = st.columns(3)
-                with m1:
-                    peso = st.number_input("Peso", step=0.1)
-                    busto = st.number_input("Busto", step=0.5)
-                    braco = st.number_input("Braços", step=0.5)
-                with m2:
-                    altura = st.number_input("Altura", step=0.01)
-                    abd = st.number_input("Abdômen (Sup/Inf)", step=0.5)
-                    cintura = st.number_input("Cintura", step=0.5)
-                with m3:
-                    quadril = st.number_input("Quadril", step=0.5)
-                    coxa = st.number_input("Coxas", step=0.5)
-                    culote = st.number_input("Culote/Panturrilha", step=0.5)
-                biotipo = st.text_input("Biotipo / Queixa")
+                peso = m1.number_input("Peso (kg)", step=0.1)
+                alt = m2.number_input("Altura (m)", step=0.01)
+                busto = m3.number_input("Busto (cm)", step=1.0)
+                
+                m4, m5, m6 = st.columns(3)
+                cint = m4.number_input("Cintura (cm)", step=1.0)
+                abd = m5.number_input("Abdômen (cm)", step=1.0)
+                quad = m6.number_input("Quadril (cm)", step=1.0)
+                
+                obs_corp = st.text_input("Obs Corporal (Celulite/Flacidez)", value=v_corp)
+                
             with t4:
-                st.subheader("4. Facial")
+                st.markdown("**Facial:**")
                 f1, f2 = st.columns(2)
-                lentes = f1.checkbox("Lentes/Cremes?")
-                filtro = f2.radio("Filtro Solar?", ["Sim", "Não"], horizontal=True)
-                fototipo = st.select_slider("Fototipo", options=["I", "II", "III", "IV", "V", "VI"])
-                pele = st.selectbox("Pele", ["Normal", "Seca", "Oleosa", "Mista", "Seborréica", "Acneica"])
-                lesoes = st.multiselect("Lesões:", ["Cravos", "Espinhas", "Manchas", "Melasma", "Rugas", "Flacidez", "Olheiras", "Cicatriz", "Vasinhos", "Verrugas"])
-                plano_facial = st.text_area("Plano Facial")
+                fototipo = f1.select_slider("Fototipo", ["I", "II", "III", "IV", "V"])
+                pele = f2.selectbox("Pele", ["Normal", "Seca", "Mista", "Oleosa", "Acneica"])
+                
+                check_face = {
+                    "Manchas": st.checkbox("Manchas/Melasma"), "Acne": st.checkbox("Acne Ativa"), "Rugas": st.checkbox("Rugas"),
+                    "Cicatriz": st.checkbox("Cicatrizes"), "Flacidez": st.checkbox("Flacidez Facial")
+                }
+                obs_facial = st.text_area("Avaliação Facial", value=v_facial)
+                
             with t5:
-                st.subheader("5. Fechamento")
-                co1, co2 = st.columns(2)
-                dia_orc = co1.date_input("Data", min_value=date.today())
-                hora_orc = co2.time_input("Hora", value=time(9,0))
-                tratamento = st.text_area("Tratamento")
-                v1, v2 = st.columns(2)
-                valor = v1.number_input("Total (R$)", min_value=0.0)
-                pag = v2.selectbox("Pagamento", ["PIX", "Cartão", "Dinheiro"])
-            
-            if st.form_submit_button("💾 SALVAR"):
-                df_check = carregar_aba(planilha, "agendamentos")
-                if verificar_conflito(df_check, dia_orc, hora_orc): st.error("Ocupado!")
-                elif not nome: st.warning("Nome!")
-                else:
-                    pessoais = f"Nasc:{nasc} | CPF:{cpf} | Prof:{prof} | End:{end}"
-                    saude_txt = processar_checkboxes({**saude_check, **pele_check, **laser_check})
-                    saude_txt += f" | Gest:{gestante}, DIU:{diu}, Horm:{hormonal} | Obs:{obs_saude}"
-                    medidas_txt = (f"Peso:{peso} Alt:{altura} Busto:{busto} Braços:{braco} Cint:{cintura} Abd:{abd} Quad:{quadril} Coxas:{coxa} Culote:{culote} | Hab:{intestino},{sono},{agua} | Ativ:{ativ}")
-                    facial_txt = (f"Foto:{fototipo} Pele:{pele} | Filtro:{filtro} Lentes:{lentes} | Lesões:{', '.join(lesoes)} | Plano:{plano_facial}")
-                    orcamento_txt = f"Trat:{tratamento} | Pag:{pag} | Valor: R$ {valor}"
-                    try:
-                        planilha.worksheet("agendamentos").append_row([
-                            dia_orc.strftime("%d/%m/%Y"), str(hora_orc), nome, tel,
-                            pessoais, saude_txt, "Ver Geral", medidas_txt,
-                            facial_txt, orcamento_txt, "Completo"
-                        ])
-                        st.success("Salvo!")
-                    except Exception as e: st.error(f"Erro: {e}")
+                c1, c2 = st.columns(2)
+                trat = c1.text_input("Tratamento")
+                val = c2.number_input("Valor R$", step=10.0)
+                pag = st.selectbox("Pagamento", ["PIX", "Cartão", "Dinheiro"])
 
-    # === IMPRESSÃO PROFISSIONAL ===
-    elif menu == "🖨️ Impressão Profissional":
-        st.header("🖨️ Seleção de Documento")
+            if st.form_submit_button("💾 SALVAR TUDO"):
+                pessoal_txt = f"Nasc:{nasc} Prof:{prof}"
+                
+                checks_txt = processar_checks(check_saude)
+                anamnese_fin = f"Checks:{checks_txt} | Queixa:{obs_saude}"
+                saude_fin = f"Detalhes:{obs_saude}" 
+                
+                medidas_fin = f"Peso:{peso} Alt:{alt} Busto:{busto} Cint:{cint} Abd:{abd} Quad:{quad} | Obs:{obs_corp}"
+                
+                face_checks = processar_checks(check_face)
+                face_fin = f"Foto:{fototipo} Pele:{pele} | {face_checks} | {obs_facial}"
+                
+                orc_fin = f"Trat:{trat} Pag:{pag} Val:{val}"
+                
+                planilha.worksheet("agendamentos").append_row([
+                    date.today().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"),
+                    nome, tel, pessoal_txt, anamnese_fin, saude_fin, 
+                    medidas_fin, face_fin, orc_fin, "Completo"
+                ])
+                st.success("Salvo com sucesso!")
+                t.sleep(1)
+                st.rerun()
+
+    # === IMPRESSÃO (COM LOGO CORRIGIDA) ===
+    elif menu == "🖨️ Impressão":
+        st.title("🖨️ Gerar PDF")
+        df = carregar_dados(planilha, "agendamentos")
         
-        # CONTROLES
-        div_controle = st.container()
-        with div_controle:
-            df = carregar_aba(planilha, "agendamentos")
-            if df.empty:
-                st.info("Nenhuma ficha encontrada.")
-                return
-            
-            st.caption("Selecione o cliente e pressione Ctrl + P. Só a ficha aparecerá.")
-            cli = st.selectbox("Cliente:", df['Nome_Cliente'].unique())
+        st.markdown("##### Selecione o Cliente:")
+        lista = []
+        col_nome = ""
+        if not df.empty:
+            for c in df.columns:
+                if "nome" in c.lower():
+                    lista = df[c].unique().tolist()
+                    col_nome = c
+                    break
         
-        if cli:
-            d = df[df['Nome_Cliente'] == cli].iloc[-1]
+        sel = st.selectbox("Cliente:", ["..."] + lista)
+        
+        if sel != "..." and col_nome:
+            d = df[df[col_nome] == sel].iloc[-1]
             
-            # --- CONSTRUÇÃO DO HTML (SEM F-STRING GIGANTE PARA NÃO DAR ERRO) ---
+            # Carrega a logo para o HTML
+            img_tag = carregar_logo_html()
             
-            # Logo
-            logo_html = ""
-            if os.path.exists("logo.png"):
-                with open("logo.png", "rb") as f:
-                    data = base64.b64encode(f.read()).decode("utf-8")
-                    logo_html = f'<img src="data:image/png;base64,{data}" style="max-width:150px; display:block; margin: 0 auto;">'
-            
-            # Montagem bloco a bloco (Mais seguro)
-            html = '<div class="folha-impressao">'
-            
-            # Cabeçalho
-            html += f'<div class="cabecalho">{logo_html}'
-            html += '<div class="titulo">Ficha de Avaliação Estética</div>'
-            html += '<div class="subtitulo">Clínica Andreza Andrade</div>'
-            html += f'<div style="font-size: 12px; margin-top:5px;">Data: {d["Data"]} | Hora: {d["Hora"]}</div></div>'
-            
-            # Seção 1
-            html += '<div class="secao"><span class="secao-titulo">1. DADOS CADASTRAIS</span>'
-            html += f'<div class="conteudo"><b>Nome:</b> {d["Nome_Cliente"]} &nbsp;&nbsp; <b>Contato:</b> {d["Contato"]}<br>'
-            html += f'<b>Detalhes:</b> {d["Dados_Pessoais"]}</div></div>'
-            
-            # Seção 2
-            html += '<div class="secao"><span class="secao-titulo">2. ANAMNESE E SAÚDE</span>'
-            html += f'<div class="conteudo">{d["Anamnese_Geral"]}<br><b>Saúde da Mulher / Obs:</b> {d["Saude_Mulher"]}</div></div>'
-            
-            # Seção 3
-            html += '<div class="secao"><span class="secao-titulo">3. AVALIAÇÃO CORPORAL</span>'
-            html += f'<div class="conteudo">{d["Medidas_Corporais"]}</div></div>'
-            
-            # Seção 4
-            html += '<div class="secao"><span class="secao-titulo">4. AVALIAÇÃO FACIAL</span>'
-            html += f'<div class="conteudo">{d["Analise_Facial"]}</div></div>'
-            
-            # Seção 5
-            html += '<div class="secao"><span class="secao-titulo">5. ORÇAMENTO</span>'
-            html += f'<div class="conteudo">{d["Orcamento"]}</div></div>'
-            
-            # Rodapé
-            html += '<div class="assinaturas"><div class="campo-ass">Assinatura do(a) Cliente</div>'
-            html += '<div class="campo-ass">Assinatura do(a) Profissional</div></div>'
-            
-            html += '</div>' # Fecha folha
-            
-            # Renderiza
+            html = f"""
+            <div class="folha-impressao">
+                <div style="text-align:center;">
+                    {img_tag}
+                    <div class="titulo-imp">FICHA DE AVALIAÇÃO</div>
+                    <small>Data: {d.get('Data', '')}</small>
+                </div>
+                
+                <div class="secao-imp">1. Dados Pessoais</div>
+                <div class="texto-imp">
+                    <b>Cliente:</b> {d.get(col_nome, '')} | <b>Contato:</b> {get_valor(d, ['contato', 'tel'])} <br>
+                    <b>Info:</b> {get_valor(d, ['dados', 'pessoais'])}
+                </div>
+
+                <div class="secao-imp">2. Anamnese e Saúde</div>
+                <div class="texto-imp">
+                    {get_valor(d, ['anamnese'])} <br>
+                    {get_valor(d, ['saude', 'mulher'])}
+                </div>
+
+                <div class="secao-imp">3. Corporal e Facial</div>
+                <div class="texto-imp">
+                    <b>Corporal:</b> {get_valor(d, ['medidas', 'corporal'])} <br>
+                    <b>Facial:</b> {get_valor(d, ['facial', 'analise'])}
+                </div>
+
+                <div class="secao-imp">4. Orçamento</div>
+                <div class="texto-imp">{get_valor(d, ['orcamento'])}</div>
+
+                <br><br><br><br>
+                <div style="display:flex; justify-content:space-between;">
+                    <div style="border-top:1px solid #000; width:40%; text-align:center;">Assinatura Cliente</div>
+                    <div style="border-top:1px solid #000; width:40%; text-align:center;">Profissional</div>
+                </div>
+            </div>
+            """
             st.markdown(html, unsafe_allow_html=True)
+            st.info("Pressione Ctrl + P para salvar como PDF")
 
     # === DESPESAS ===
-    elif menu == "💸 Registrar Despesa":
-        st.header("💸 Saída de Caixa")
-        with st.form("despesa"):
-            d1, d2 = st.columns(2)
-            dt = d1.date_input("Data")
-            val = d2.number_input("Valor R$", min_value=0.0)
-            desc = st.text_input("Descrição")
-            cat = st.selectbox("Categoria", ["Aluguel", "Luz/Água", "Produtos", "Pessoal", "Outros"])
-            if st.form_submit_button("Lançar"):
-                planilha.worksheet("despesas").append_row([
-                    dt.strftime("%d/%m/%Y"), desc, cat, str(val).replace(".", ",")
-                ])
-                st.success("Lançado!")
-        st.dataframe(carregar_aba(planilha, "despesas"))
+    elif menu == "💸 Despesas":
+        st.title("Despesas")
+        with st.form("desp"):
+            v = st.number_input("Valor")
+            d = st.text_input("Desc")
+            if st.form_submit_button("Salvar"):
+                planilha.worksheet("despesas").append_row([date.today().strftime("%d/%m/%Y"), d, "Geral", str(v)])
+                st.success("Ok!")
+        st.dataframe(carregar_dados(planilha, "despesas"), use_container_width=True)
 
 if __name__ == "__main__":
     main()
