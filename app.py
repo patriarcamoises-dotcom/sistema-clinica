@@ -5,6 +5,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, time
 import os
 import base64
+import urllib.parse
 import time as t
 
 # --- 1. CONFIGURAÇÃO ---
@@ -26,28 +27,23 @@ st.markdown("""
         background-color: white; padding: 40px; border: 1px solid #ddd; 
         font-family: 'Arial', sans-serif; color: black; margin-top: 20px;
     }
-    .titulo-imp { text-align: center; font-size: 22px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
-    .secao-imp { background-color: #f4f4f4; padding: 5px; font-weight: bold; border-left: 4px solid #333; margin-top: 15px; font-size: 12px; }
-    .texto-imp { margin-top: 5px; font-size: 12px; line-height: 1.4; text-align: justify; }
     .aviso-ok { background-color: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES TÉCNICAS ---
-# --- SUBSTIRUA A FUNÇÃO 'conectar' POR ESTA ---
+# --- 2. CONEXÃO HÍBRIDA (FUNCIONA NO PC E NA NUVEM) ---
 def conectar():
-    # 1. Tenta conectar usando os Segredos da Nuvem (Streamlit Cloud)
+    # TENTATIVA 1: NUVEM (Streamlit Secrets)
     try:
         if "gcp_service_account" in st.secrets:
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            # Cria as credenciais a partir do dicionário de segredos
             creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
             client = gspread.authorize(creds)
             return client.open("sistema_clinica")
-    except Exception as e:
-        pass # Se der erro aqui, tenta o método local abaixo
+    except:
+        pass # Se falhar, tenta o modo local
 
-    # 2. Se não der certo, tenta conectar usando o arquivo no PC (Local)
+    # TENTATIVA 2: LOCAL (Arquivo no PC)
     try:
         pasta = os.path.dirname(os.path.abspath(__file__))
         caminho = os.path.join(pasta, "credentials.json")
@@ -56,43 +52,31 @@ def conectar():
         client = gspread.authorize(creds)
         return client.open("sistema_clinica")
     except Exception as e:
-        st.error(f"❌ Erro de conexão (Nem Nuvem, Nem Local): {e}")
+        st.error(f"❌ Erro de Conexão: {e}")
         return None
+
 def carregar_dados(planilha, aba):
     try:
         ws = planilha.worksheet(aba)
         dados = ws.get_all_values()
-        
         if len(dados) < 2: return pd.DataFrame()
-        
-        # TRATAMENTO DE ERRO DE COLUNAS DUPLICADAS
         cabecalho = dados[0]
-        # Remove colunas vazias do cabeçalho
-        indices_validos = [i for i, nome in enumerate(cabecalho) if nome.strip() != ""]
-        cabecalho_limpo = [cabecalho[i] for i in indices_validos]
-        
-        linhas_limpas = []
-        for linha in dados[1:]:
-            # Pega apenas os dados das colunas válidas
-            nova_linha = [linha[i] if i < len(linha) else "" for i in indices_validos]
-            linhas_limpas.append(nova_linha)
-            
-        return pd.DataFrame(linhas_limpas, columns=cabecalho_limpo)
-    except Exception as e:
-        st.error(f"⚠️ Erro ao ler aba '{aba}': {e}")
-        return pd.DataFrame()
+        indices = [i for i, nome in enumerate(cabecalho) if nome.strip() != ""]
+        cab_limpo = [cabecalho[i] for i in indices]
+        linhas = [[linha[i] if i < len(linha) else "" for i in indices] for linha in dados[1:]]
+        return pd.DataFrame(linhas, columns=cab_limpo)
+    except: return pd.DataFrame()
 
 def carregar_logo_html():
+    # Tenta achar logo local (PC)
     pasta = os.path.dirname(os.path.abspath(__file__))
-    # Tenta achar a logo com maiúscula ou minúscula
-    caminho = os.path.join(pasta, "LOGO.png")
-    if not os.path.exists(caminho):
-        caminho = os.path.join(pasta, "logo.png")
-    
-    if os.path.exists(caminho):
-        with open(caminho, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode()
-        return f'<img src="data:image/png;base64,{b64}" style="max-height:80px; display:block; margin:0 auto;">'
+    # Tenta vários nomes comuns
+    for nome in ["LOGO.png", "logo.png", "Logo.png"]:
+        caminho = os.path.join(pasta, nome)
+        if os.path.exists(caminho):
+            with open(caminho, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            return f'<img src="data:image/png;base64,{b64}" style="max-height:80px; display:block; margin:0 auto;">'
     return ""
 
 def processar_checks(dicionario):
@@ -109,15 +93,15 @@ def main():
     st.sidebar.title("🏥 Menu")
     menu = st.sidebar.radio("Ir para:", ["📅 Agenda", "📝 Ficha Completa", "🖨️ Impressão", "📊 Financeiro", "💸 Despesas"])
     
-    # Exibe a logo na barra lateral também
+    # Logo na barra lateral (se existir)
     logo_html = carregar_logo_html()
-    if "img" not in logo_html: # Se não achou imagem, não mostra erro
-        pass 
-
+    
     if st.sidebar.button("🔄 Recarregar"): st.rerun()
 
     planilha = conectar()
-    if not planilha: st.stop()
+    if not planilha: 
+        st.warning("⚠️ Não consegui conectar na planilha. Verifique as credenciais.")
+        st.stop()
 
     # === AGENDA ===
     if menu == "📅 Agenda":
@@ -149,14 +133,13 @@ def main():
                 t.sleep(1)
                 st.rerun()
 
-    # === FICHA COMPLETA (COM TUDO DE VOLTA) ===
+    # === FICHA COMPLETA ===
     elif menu == "📝 Ficha Completa":
         st.title("📝 Avaliação Detalhada")
         df = carregar_dados(planilha, "agendamentos")
         
         v_nome, v_tel, v_anam, v_saude, v_corp, v_facial = "", "", "", "", "", ""
 
-        # PESQUISA
         st.markdown("##### 🔍 1. Selecione o Cliente")
         lista_nomes = []
         col_nome_real = ""
@@ -178,7 +161,6 @@ def main():
             v_nome = str(ultimo[col_nome_real])
             v_tel = get_valor(ultimo, ["contato", "tel", "zap"])
             
-            # Histórico
             for i in range(len(d_cli)-1, -1, -1):
                 linha = d_cli.iloc[i]
                 if not v_anam: v_anam = get_valor(linha, ["anamnese"])
@@ -187,12 +169,10 @@ def main():
                 if not v_facial: v_facial = get_valor(linha, ["facial", "analise"])
             
             if v_anam or v_saude:
-                st.markdown(f'<div class="aviso-ok">✅ Histórico encontrado! Os dados foram carregados abaixo.</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="aviso-ok">✅ Histórico carregado!</div>', unsafe_allow_html=True)
 
-        # FORMULÁRIO DETALHADO
         with st.form("ficha"):
             t1, t2, t3, t4, t5 = st.tabs(["Pessoais", "Saúde/Laser", "Corporal", "Facial", "Orçamento"])
-            
             with t1:
                 c1, c2 = st.columns(2)
                 nome = c1.text_input("Nome", value=v_nome)
@@ -200,45 +180,40 @@ def main():
                 c3, c4 = st.columns(2)
                 nasc = c3.text_input("Data Nascimento")
                 prof = c4.text_input("Profissão / CPF")
-            
             with t2:
                 st.markdown("**Histórico Clínico:**")
                 ca, cb, cc = st.columns(3)
-                # CHECKBOXES VOLTARAM
                 check_saude = {
                     "Alergia": ca.checkbox("Alergias"), "Medicamentos": cb.checkbox("Usa Medicamentos"), "Trat. Médico": cc.checkbox("Tratamento Médico"),
                     "Oncológico": ca.checkbox("Hist. Oncológico"), "Cardíaco": cb.checkbox("Cardíaco/Marcapasso"), "Gestante": cc.checkbox("Gestante"),
                     "DIU": ca.checkbox("Usa DIU"), "Hormonal": cb.checkbox("Alteração Hormonal"), "Sol": cc.checkbox("Sol Recente")
                 }
                 obs_saude = st.text_area("Obs. Saúde / Queixas", value=v_anam, height=100)
-            
             with t3:
                 st.markdown("**Medidas Corporais:**")
-                # MEDIDAS DETALHADAS VOLTARAM
                 m1, m2, m3 = st.columns(3)
                 peso = m1.number_input("Peso (kg)", step=0.1)
                 alt = m2.number_input("Altura (m)", step=0.01)
                 busto = m3.number_input("Busto (cm)", step=1.0)
-                
                 m4, m5, m6 = st.columns(3)
                 cint = m4.number_input("Cintura (cm)", step=1.0)
                 abd = m5.number_input("Abdômen (cm)", step=1.0)
                 quad = m6.number_input("Quadril (cm)", step=1.0)
-                
-                obs_corp = st.text_input("Obs Corporal (Celulite/Flacidez)", value=v_corp)
-                
+                m7, m8, m9 = st.columns(3)
+                coxa = m7.number_input("Coxas (cm)", step=1.0)
+                culote = m8.number_input("Culote (cm)", step=1.0)
+                braco = m9.number_input("Braços (cm)", step=1.0)
+                obs_corp = st.text_input("Obs Corporal", value=v_corp)
             with t4:
                 st.markdown("**Facial:**")
                 f1, f2 = st.columns(2)
                 fototipo = f1.select_slider("Fototipo", ["I", "II", "III", "IV", "V"])
                 pele = f2.selectbox("Pele", ["Normal", "Seca", "Mista", "Oleosa", "Acneica"])
-                
                 check_face = {
                     "Manchas": st.checkbox("Manchas/Melasma"), "Acne": st.checkbox("Acne Ativa"), "Rugas": st.checkbox("Rugas"),
                     "Cicatriz": st.checkbox("Cicatrizes"), "Flacidez": st.checkbox("Flacidez Facial")
                 }
                 obs_facial = st.text_area("Avaliação Facial", value=v_facial)
-                
             with t5:
                 c1, c2 = st.columns(2)
                 trat = c1.text_input("Tratamento")
@@ -247,16 +222,12 @@ def main():
 
             if st.form_submit_button("💾 SALVAR TUDO"):
                 pessoal_txt = f"Nasc:{nasc} Prof:{prof}"
-                
                 checks_txt = processar_checks(check_saude)
                 anamnese_fin = f"Checks:{checks_txt} | Queixa:{obs_saude}"
                 saude_fin = f"Detalhes:{obs_saude}" 
-                
                 medidas_fin = f"Peso:{peso} Alt:{alt} Busto:{busto} Cint:{cint} Abd:{abd} Quad:{quad} | Obs:{obs_corp}"
-                
                 face_checks = processar_checks(check_face)
                 face_fin = f"Foto:{fototipo} Pele:{pele} | {face_checks} | {obs_facial}"
-                
                 orc_fin = f"Trat:{trat} Pag:{pag} Val:{val}"
                 
                 planilha.worksheet("agendamentos").append_row([
@@ -268,7 +239,7 @@ def main():
                 t.sleep(1)
                 st.rerun()
 
-    # === IMPRESSÃO (COM LOGO CORRIGIDA) ===
+    # === IMPRESSÃO ===
     elif menu == "🖨️ Impressão":
         st.title("🖨️ Gerar PDF")
         df = carregar_dados(planilha, "agendamentos")
@@ -287,8 +258,6 @@ def main():
         
         if sel != "..." and col_nome:
             d = df[df[col_nome] == sel].iloc[-1]
-            
-            # Carrega a logo para o HTML
             img_tag = carregar_logo_html()
             
             html = f"""
@@ -335,7 +304,7 @@ def main():
         st.title("Despesas")
         with st.form("desp"):
             v = st.number_input("Valor")
-            d = st.text_input("Desc")
+            d = st.text_input("Descrição")
             if st.form_submit_button("Salvar"):
                 planilha.worksheet("despesas").append_row([date.today().strftime("%d/%m/%Y"), d, "Geral", str(v)])
                 st.success("Ok!")
