@@ -5,7 +5,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, time
 import os
 import base64
-import urllib.parse
 import time as t
 
 # --- 1. CONFIGURAÇÃO ---
@@ -27,23 +26,24 @@ st.markdown("""
         background-color: white; padding: 40px; border: 1px solid #ddd; 
         font-family: 'Arial', sans-serif; color: black; margin-top: 20px;
     }
+    .titulo-imp { text-align: center; font-size: 22px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
+    .secao-imp { background-color: #f4f4f4; padding: 5px; font-weight: bold; border-left: 4px solid #333; margin-top: 15px; font-size: 12px; }
+    .texto-imp { margin-top: 5px; font-size: 12px; line-height: 1.4; text-align: justify; }
     .aviso-ok { background-color: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONEXÃO HÍBRIDA (FUNCIONA NO PC E NA NUVEM) ---
+# --- 2. FUNÇÕES TÉCNICAS ---
 def conectar():
-    # TENTATIVA 1: NUVEM (Streamlit Secrets)
+    # Tenta conectar via Secrets (Nuvem) ou Arquivo Local (PC)
     try:
         if "gcp_service_account" in st.secrets:
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
             client = gspread.authorize(creds)
             return client.open("sistema_clinica")
-    except:
-        pass # Se falhar, tenta o modo local
+    except: pass
 
-    # TENTATIVA 2: LOCAL (Arquivo no PC)
     try:
         pasta = os.path.dirname(os.path.abspath(__file__))
         caminho = os.path.join(pasta, "credentials.json")
@@ -52,7 +52,6 @@ def conectar():
         client = gspread.authorize(creds)
         return client.open("sistema_clinica")
     except Exception as e:
-        st.error(f"❌ Erro de Conexão: {e}")
         return None
 
 def carregar_dados(planilha, aba):
@@ -61,6 +60,7 @@ def carregar_dados(planilha, aba):
         dados = ws.get_all_values()
         if len(dados) < 2: return pd.DataFrame()
         cabecalho = dados[0]
+        # Limpa colunas vazias
         indices = [i for i, nome in enumerate(cabecalho) if nome.strip() != ""]
         cab_limpo = [cabecalho[i] for i in indices]
         linhas = [[linha[i] if i < len(linha) else "" for i in indices] for linha in dados[1:]]
@@ -68,11 +68,10 @@ def carregar_dados(planilha, aba):
     except: return pd.DataFrame()
 
 def carregar_logo_html():
-    # Tenta achar logo local (PC)
     pasta = os.path.dirname(os.path.abspath(__file__))
-    # Tenta vários nomes comuns
-    for nome in ["LOGO.png", "logo.png", "Logo.png"]:
-        caminho = os.path.join(pasta, nome)
+    # Procura a imagem com diferentes nomes
+    for n in ["LOGO.png", "logo.png", "Logo.png"]:
+        caminho = os.path.join(pasta, n)
         if os.path.exists(caminho):
             with open(caminho, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
@@ -93,14 +92,14 @@ def main():
     st.sidebar.title("🏥 Menu")
     menu = st.sidebar.radio("Ir para:", ["📅 Agenda", "📝 Ficha Completa", "🖨️ Impressão", "📊 Financeiro", "💸 Despesas"])
     
-    # Logo na barra lateral (se existir)
+    # Mostra logo na barra lateral se tiver
     logo_html = carregar_logo_html()
     
     if st.sidebar.button("🔄 Recarregar"): st.rerun()
 
     planilha = conectar()
     if not planilha: 
-        st.warning("⚠️ Não consegui conectar na planilha. Verifique as credenciais.")
+        st.error("Erro de conexão. Verifique 'credentials.json' ou os Secrets.")
         st.stop()
 
     # === AGENDA ===
@@ -169,7 +168,7 @@ def main():
                 if not v_facial: v_facial = get_valor(linha, ["facial", "analise"])
             
             if v_anam or v_saude:
-                st.markdown(f'<div class="aviso-ok">✅ Histórico carregado!</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="aviso-ok">✅ Histórico encontrado! Os dados foram carregados abaixo.</div>', unsafe_allow_html=True)
 
         with st.form("ficha"):
             t1, t2, t3, t4, t5 = st.tabs(["Pessoais", "Saúde/Laser", "Corporal", "Facial", "Orçamento"])
@@ -258,44 +257,43 @@ def main():
         
         if sel != "..." and col_nome:
             d = df[df[col_nome] == sel].iloc[-1]
-            img_tag = carregar_logo_html()
-            
+            # O truque aqui é não deixar espaços no início das linhas do HTML
             html = f"""
-            <div class="folha-impressao">
-                <div style="text-align:center;">
-                    {img_tag}
-                    <div class="titulo-imp">FICHA DE AVALIAÇÃO</div>
-                    <small>Data: {d.get('Data', '')}</small>
-                </div>
-                
-                <div class="secao-imp">1. Dados Pessoais</div>
-                <div class="texto-imp">
-                    <b>Cliente:</b> {d.get(col_nome, '')} | <b>Contato:</b> {get_valor(d, ['contato', 'tel'])} <br>
-                    <b>Info:</b> {get_valor(d, ['dados', 'pessoais'])}
-                </div>
+<div class="folha-impressao">
+    <div style="text-align:center;">
+        {logo_html}
+        <div class="titulo-imp">FICHA DE AVALIAÇÃO</div>
+        <small>Data: {d.get('Data', '')}</small>
+    </div>
+    
+    <div class="secao-imp">1. Dados Pessoais</div>
+    <div class="texto-imp">
+        <b>Cliente:</b> {d.get(col_nome, '')} | <b>Contato:</b> {get_valor(d, ['contato', 'tel'])} <br>
+        <b>Info:</b> {get_valor(d, ['dados', 'pessoais'])}
+    </div>
 
-                <div class="secao-imp">2. Anamnese e Saúde</div>
-                <div class="texto-imp">
-                    {get_valor(d, ['anamnese'])} <br>
-                    {get_valor(d, ['saude', 'mulher'])}
-                </div>
+    <div class="secao-imp">2. Anamnese e Saúde</div>
+    <div class="texto-imp">
+        {get_valor(d, ['anamnese'])} <br>
+        {get_valor(d, ['saude', 'mulher'])}
+    </div>
 
-                <div class="secao-imp">3. Corporal e Facial</div>
-                <div class="texto-imp">
-                    <b>Corporal:</b> {get_valor(d, ['medidas', 'corporal'])} <br>
-                    <b>Facial:</b> {get_valor(d, ['facial', 'analise'])}
-                </div>
+    <div class="secao-imp">3. Corporal e Facial</div>
+    <div class="texto-imp">
+        <b>Corporal:</b> {get_valor(d, ['medidas', 'corporal'])} <br>
+        <b>Facial:</b> {get_valor(d, ['facial', 'analise'])}
+    </div>
 
-                <div class="secao-imp">4. Orçamento</div>
-                <div class="texto-imp">{get_valor(d, ['orcamento'])}</div>
+    <div class="secao-imp">4. Orçamento</div>
+    <div class="texto-imp">{get_valor(d, ['orcamento'])}</div>
 
-                <br><br><br><br>
-                <div style="display:flex; justify-content:space-between;">
-                    <div style="border-top:1px solid #000; width:40%; text-align:center;">Assinatura Cliente</div>
-                    <div style="border-top:1px solid #000; width:40%; text-align:center;">Profissional</div>
-                </div>
-            </div>
-            """
+    <br><br><br><br>
+    <div style="display:flex; justify-content:space-between;">
+        <div style="border-top:1px solid #000; width:40%; text-align:center;">Assinatura Cliente</div>
+        <div style="border-top:1px solid #000; width:40%; text-align:center;">Profissional</div>
+    </div>
+</div>
+"""
             st.markdown(html, unsafe_allow_html=True)
             st.info("Pressione Ctrl + P para salvar como PDF")
 
@@ -304,7 +302,7 @@ def main():
         st.title("Despesas")
         with st.form("desp"):
             v = st.number_input("Valor")
-            d = st.text_input("Descrição")
+            d = st.text_input("Desc")
             if st.form_submit_button("Salvar"):
                 planilha.worksheet("despesas").append_row([date.today().strftime("%d/%m/%Y"), d, "Geral", str(v)])
                 st.success("Ok!")
