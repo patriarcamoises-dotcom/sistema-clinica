@@ -34,7 +34,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES TÉCNICAS ---
+# --- SUBSTIRUA A FUNÇÃO 'conectar' POR ESTA ---
 def conectar():
+    # 1. Tenta conectar usando os Segredos da Nuvem (Streamlit Cloud)
+    try:
+        if "gcp_service_account" in st.secrets:
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            # Cria as credenciais a partir do dicionário de segredos
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
+            client = gspread.authorize(creds)
+            return client.open("sistema_clinica")
+    except Exception as e:
+        pass # Se der erro aqui, tenta o método local abaixo
+
+    # 2. Se não der certo, tenta conectar usando o arquivo no PC (Local)
     try:
         pasta = os.path.dirname(os.path.abspath(__file__))
         caminho = os.path.join(pasta, "credentials.json")
@@ -43,9 +56,8 @@ def conectar():
         client = gspread.authorize(creds)
         return client.open("sistema_clinica")
     except Exception as e:
-        st.error(f"❌ Erro na Conexão: {e}")
+        st.error(f"❌ Erro de conexão (Nem Nuvem, Nem Local): {e}")
         return None
-
 def carregar_dados(planilha, aba):
     try:
         ws = planilha.worksheet(aba)
