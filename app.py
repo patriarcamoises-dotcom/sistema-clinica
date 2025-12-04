@@ -57,15 +57,13 @@ def carregar_dados(planilha, aba):
         dados = ws.get_all_values()
         if len(dados) < 2: return pd.DataFrame()
         
-        # Limpeza de Colunas (Evita erro vermelho)
+        # Limpeza de Colunas
         cabecalho = dados[0]
-        # Pega índices apenas de colunas que têm nome escrito
         idx_validos = [i for i, nome in enumerate(cabecalho) if nome.strip() != ""]
         cols_limpas = [cabecalho[i] for i in idx_validos]
         
         linhas_limpas = []
         for linha in dados[1:]:
-            # Preenche linha se for curta demais
             linha += [""] * (len(cabecalho) - len(linha))
             linhas_limpas.append([linha[i] for i in idx_validos])
             
@@ -239,15 +237,55 @@ def main():
             st.markdown(html, unsafe_allow_html=True)
             st.info("Aperte Ctrl + P. Na janela que abrir, mude 'Destino' para sua Impressora.")
 
+    # === FINANCEIRO (AGORA FUNCIONA!) ===
+    elif menu == "📊 Financeiro":
+        st.header("📊 Fluxo de Caixa")
+        df_ag = carregar_dados(planilha, "agendamentos")
+        df_dp = carregar_dados(planilha, "despesas")
+        
+        ent = 0.0
+        sai = 0.0
+        
+        # Calcula Entradas
+        if not df_ag.empty:
+            for col in df_ag.columns:
+                if "orcamento" in col.lower():
+                    for item in df_ag[col].astype(str):
+                        # Limpa o texto "Valor: R$ 100.0" para virar número 100.0
+                        if "Val:" in item:
+                            try:
+                                v = item.split("Val:")[1].strip()
+                                ent += float(v.replace(",", "."))
+                            except: pass
+                        elif "Valor:" in item: # Compatibilidade antiga
+                             try:
+                                v = item.split("R$")[1].strip()
+                                ent += float(v.replace(",", "."))
+                             except: pass
+
+        # Calcula Saídas
+        if not df_dp.empty:
+            for col in df_dp.columns:
+                if "valor" in col.lower():
+                    for item in df_dp[col].astype(str):
+                        try:
+                            sai += float(item.replace(",", "."))
+                        except: pass
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("💰 Entradas", f"R$ {ent:,.2f}")
+        c2.metric("💸 Saídas", f"R$ {sai:,.2f}")
+        c3.metric("📈 Lucro", f"R$ {ent - sai:,.2f}")
+
     # === DESPESAS ===
     elif menu == "💸 Despesas":
         st.title("Despesas")
         with st.form("dp"):
-            v = st.number_input("Valor")
+            v = st.number_input("Valor", min_value=0.0)
             d = st.text_input("Desc")
             if st.form_submit_button("Salvar"):
                 planilha.worksheet("despesas").append_row([date.today().strftime("%d/%m/%Y"), d, "Geral", str(v)])
-                st.success("Ok!")
+                st.success("Salvo!")
         st.dataframe(carregar_dados(planilha, "despesas"))
 
 if __name__ == "__main__":
