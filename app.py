@@ -93,9 +93,9 @@ def processar_foto(uploaded_file):
     if uploaded_file is None: return ""
     try:
         image = Image.open(uploaded_file)
-        image.thumbnail((200, 200)) # Reduz tamanho
+        image.thumbnail((300, 300)) # Reduz tamanho para não travar
         img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format=image.format)
+        image.save(img_byte_arr, format='JPEG', quality=70) # Comprime
         return base64.b64encode(img_byte_arr.getvalue()).decode()
     except: return ""
 
@@ -130,7 +130,6 @@ def radar_lembretes(df):
             dt_agend = datetime.strptime(f"{hoje_str} {hora_str}", "%d/%m/%Y %H:%M:%S" if len(hora_str)>5 else "%d/%m/%Y %H:%M")
             diferenca = dt_agend - agora
             minutos = diferenca.total_seconds() / 60
-            # Se falta entre 0 e 130 minutos (2h e 10m)
             if 0 < minutos <= 130:
                 avisos.append((row['Nome_Cliente'], hora_str, get_val(row, ['contato', 'tel', 'zap'])))
         except: pass
@@ -151,7 +150,7 @@ def main():
         if not planilha: st.error("Erro Conexão"); st.stop()
         df_global = carregar_dados(planilha, "agendamentos")
 
-        # RADAR DE 2 HORAS
+        # RADAR
         lembretes = radar_lembretes(df_global)
         if lembretes:
             st.divider()
@@ -187,8 +186,17 @@ def main():
             
             if st.form_submit_button("Agendar"):
                 d_fmt = d.strftime("%d/%m/%Y")
-                if verificar_conflito(df_global, d_fmt, h):
+                
+                # VERIFICAR DUPLICIDADE NO AGENDAMENTO TAMBÉM
+                duplicado = False
+                if not df_global.empty:
+                    filtro = df_global[(df_global['Data'] == d_fmt) & (df_global['Nome_Cliente'].str.lower() == n.strip().lower())]
+                    if not filtro.empty: duplicado = True
+
+                if verificar_conflito(df_global, d_fmt, h) and not duplicado:
                     st.error(f"❌ Horário {h} ocupado em {d_fmt}!")
+                elif duplicado:
+                     st.warning("⚠️ Esse cliente já está agendado para hoje. Use a Ficha Completa para editar.")
                 else:
                     planilha.worksheet("agendamentos").append_row([d_fmt, str(h), n, z, "", "", "", "", "", "", "Agendado", ""])
                     st.success("Agendado!")
@@ -218,27 +226,36 @@ def main():
             ult = dcli.iloc[-1]
             vn = str(ult[col_nome]); vt = get_val(ult, ["contato", "tel"])
             
+            # Recupera dados anteriores
             for i in range(len(dcli)-1, -1, -1):
                 row = dcli.iloc[i]
                 if not van: van=get_val(row, ["anamnese"])
                 if not vsa: vsa=get_val(row, ["saude", "mulher"])
                 if not vco: vco=get_val(row, ["medidas", "corporal"])
                 if not vfa: vfa=get_val(row, ["facial"])
-                if not vfoto: vfoto=get_val(row, ["foto", "imagem"]) # Procura a foto
+            
+            # TENTA BUSCAR A FOTO NA ABA HISTORICO (Para não pesar a principal)
+            try:
+                ws_foto = planilha.worksheet("Historico_Fotos")
+                fotos = ws_foto.get_all_values()
+                # Procura foto do cliente (de baixo pra cima)
+                for f in reversed(fotos):
+                    if len(f) > 2 and f[1].lower() == sel.lower() and "http" not in f[2]:
+                        vfoto = f[2] # Pega o base64
+                        break
+            except: pass
             
             if van or vsa: 
                 st.info("✅ Histórico carregado!")
 
         with st.form("ficha"):
-            # LAYOUT COM FOTO
             col_img, col_form = st.columns([1, 3])
             
             with col_img:
                 st.write("**Foto do Cliente**")
-                # Se tiver foto antiga, mostra
                 if vfoto:
-                    try: st.image(base64.b64decode(vfoto), width=150, caption="Foto Atual")
-                    except: st.error("Erro foto")
+                    try: st.image(base64.b64decode(vfoto), width=150, caption="Foto Salva")
+                    except: st.error("Erro ao carregar foto")
                 
                 nova_foto = st.file_uploader("Trocar/Adicionar", type=['jpg','png','jpeg'])
 
@@ -281,16 +298,61 @@ def main():
                 face_fin = f"{face_checks} | {ofa}"
                 orc_fin = f"Trat:{tr} Pag:{pg} Val:{vl}"
                 
-                # Trata a foto
-                foto_final = vfoto # Mantém a antiga se não mudar
-                if nova_foto:
-                    foto_final = processar_foto(nova_foto)
+                # --- LÓGICA INTELIGENTE (ANTI-DUPLICIDADE) ---
+                ws = planilha.worksheet("agendamentos")
+                data_hoje = date.today().strftime("%d/%m/%Y")
+                hora_agora = datetime.now().strftime("%H:%M")
                 
-                planilha.worksheet("agendamentos").append_row([
-                    date.today().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"),
-                    nm, tl, pess, ana_fin, saude_fin, med_fin, face_fin, orc_fin, "Completo", foto_final
-                ])
-                st.success("Salvo!"); t.sleep(1); st.rerun()
+                # 1. Procura se já existe (Nome + Data de Hoje)
+                cell_encontrada = None
+                try:
+                    records = ws.get_all_records()
+                    for i, row in enumerate(records):
+                        # Gspread começa linha 2 (1 é header) -> i começa em 0
+                        # Logo: Linha Real = i + 2
+                        r_nome = str(row.get('Nome_Cliente', '')).lower().strip()
+                        r_data = str(row.get('Data', ''))
+                        
+                        if r_nome == nm.lower().strip() and r_data == data_hoje:
+                            cell_encontrada = i + 2
+                            break
+                except: pass
+
+                # 2. Prepara os dados (SEM A FOTO GIGANTE)
+                # Colunas: Data, Hora, Nome, Contato, Dados, Anamnese, Saude, Medidas, Facial, Orcamento, Status, Foto
+                
+                if cell_encontrada:
+                    # >> ATUALIZAR LINHA EXISTENTE
+                    # Atualiza colunas 4 (Contato) até 11 (Status)
+                    # Range: D{linha}:K{linha}
+                    ws.update(f"D{cell_encontrada}:K{cell_encontrada}", [[tl, pess, ana_fin, saude_fin, med_fin, face_fin, orc_fin, "Completo"]])
+                    
+                    # Limpa a coluna L (Foto) para não travar
+                    ws.update_cell(cell_encontrada, 12, "Ver Historico")
+                    st.success(f"✅ Ficha de {nm} atualizada na linha {cell_encontrada}!")
+                
+                else:
+                    # >> CRIAR LINHA NOVA
+                    ws.append_row([
+                        data_hoje, hora_agora,
+                        nm, tl, pess, ana_fin, saude_fin, med_fin, face_fin, orc_fin, "Completo", "Ver Historico"
+                    ])
+                    st.success(f"✨ Novo cadastro criado para {nm}!")
+
+                # --- 3. SALVAR FOTO SEPARADAMENTE ---
+                if nova_foto:
+                    foto_b64 = processar_foto(nova_foto)
+                    try:
+                        ws_fotos = planilha.worksheet("Historico_Fotos")
+                    except:
+                        ws_fotos = planilha.add_worksheet("Historico_Fotos", 1000, 5)
+                        ws_fotos.append_row(["Data", "Nome", "Foto_Base64", "Obs"])
+                    
+                    # Salva na aba separada
+                    ws_fotos.append_row([data_hoje, nm, foto_b64, "Salvo via Sistema"])
+                    st.info("📸 Foto salva no histórico com segurança.")
+                
+                t.sleep(2); st.rerun()
 
     # === IMPRESSÃO ===
     elif menu == "🖨️ Impressão":
@@ -308,65 +370,8 @@ def main():
             d = df_global[df_global[col_n] == sel].iloc[-1]
             logo_html = get_logo_html()
             
-            # Pega foto para impressão
-            foto_html = ""
+            # Tenta pegar foto do Historico_Fotos se não tiver na principal
             fb64 = get_val(d, ["foto", "imagem"])
-            if fb64: foto_html = f'<img src="data:image/png;base64,{fb64}" style="width:120px; border:1px solid #ccc;">'
-
-            html = f"""
-            <div class="folha-impressao">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>{logo_html}</div>
-                    <div style="text-align:right;"><h3>FICHA DE AVALIAÇÃO</h3><small>{d.get('Data','')}</small></div>
-                </div>
-                <br>
-                <div style="display:flex;">
-                    <div style="flex:1;">
-                        <b>1. DADOS:</b> {d.get(col_n)} | {get_val(d,['contato'])}<br>{get_val(d,['dados'])}
-                    </div>
-                    <div>{foto_html}</div>
-                </div>
-                <hr>
-                <div style="padding:5px;"><b>2. SAÚDE:</b> {get_val(d,['anamnese'])}<br>{get_val(d,['saude'])}</div>
-                <div style="border-top:1px solid #ccc; padding:5px;"><b>3. CORPO/FACE:</b> {get_val(d,['medidas'])}<br>{get_val(d,['facial'])}</div>
-                <div style="border-top:1px solid #ccc; padding:5px;"><b>4. ORÇAMENTO:</b> {get_val(d,['orcamento'])}</div>
-                <br><br><br><center>__________________________<br>Assinatura</center>
-            </div>
-            """
-            st.markdown(html, unsafe_allow_html=True)
-            st.info("Aperte Ctrl + P")
-
-    # === FINANCEIRO ===
-    elif menu == "📊 Financeiro":
-        st.header("📊 Fluxo de Caixa")
-        df_dp = carregar_dados(planilha, "despesas")
-        ent = 0.0; sai = 0.0
-        if not df_global.empty:
-            for col in df_global.columns:
-                if "orcamento" in col.lower():
-                    for item in df_global[col].astype(str):
-                        try:
-                            if "Val:" in item: v=item.split("Val:")[1].strip(); ent+=float(v.replace(",", "."))
-                            elif "Valor:" in item: v=item.split("R$")[1].strip(); ent+=float(v.replace(",", "."))
-                        except: pass
-        if not df_dp.empty:
-            for col in df_dp.columns:
-                if "valor" in col.lower():
-                    for item in df_dp[col].astype(str):
-                        try: sai+=float(item.replace(",", "."))
-                        except: pass
-        c1,c2,c3 = st.columns(3)
-        c1.metric("Entradas", f"R$ {ent:,.2f}"); c2.metric("Saídas", f"R$ {sai:,.2f}"); c3.metric("Lucro", f"R$ {ent-sai:,.2f}")
-
-    # === DESPESAS ===
-    elif menu == "💸 Despesas":
-        st.title("Despesas")
-        with st.form("dp"):
-            v=st.number_input("Valor"); d=st.text_input("Desc")
-            if st.form_submit_button("Salvar"):
-                planilha.worksheet("despesas").append_row([date.today().strftime("%d/%m/%Y"), d, "Geral", str(v)])
-                st.success("Ok!")
-        st.dataframe(carregar_dados(planilha, "despesas"))
-
-if __name__ == "__main__":
-    main()
+            if not fb64 or len(fb64) < 50:
+                 try:
+                    ws_foto = planilha.worksheet
